@@ -6,8 +6,8 @@ plugins {
 }
 
 dependencies {
-    implementation(platform("org.springframework.boot:spring-boot-dependencies:3.5.14"))
-    implementation(platform("org.springframework.cloud:spring-cloud-dependencies:2025.1.1"))
+    implementation(platform("org.springframework.boot:spring-boot-dependencies:4.0.6"))
+    implementation(platform("org.springframework.cloud:spring-cloud-dependencies:2025.0.2"))
 
     implementation("org.springframework.boot:spring-boot-starter-webflux")
     implementation("org.springframework.boot:spring-boot-starter-security")

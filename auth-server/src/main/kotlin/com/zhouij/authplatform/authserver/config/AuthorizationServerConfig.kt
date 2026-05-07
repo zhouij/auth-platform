@@ -1,40 +1,22 @@
 package com.zhouij.authplatform.authserver.config
 
 import com.zhouij.authplatform.authserver.auth.IamPrincipal
-import org.springframework.context.ConfigurableApplicationContext
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import org.springframework.core.annotation.Order
 import org.springframework.jdbc.core.JdbcTemplate
-import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationConsentService
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationService
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationConsentService
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService
 import org.springframework.security.oauth2.server.authorization.client.JdbcRegisteredClientRepository
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository
-import org.springframework.security.oauth2.server.authorization.config.annotation.web.configuration.OAuth2AuthorizationServerConfiguration
-import org.springframework.security.oauth2.server.authorization.config.annotation.web.configurers.OAuth2AuthorizationServerConfigurer
 import org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings
 import org.springframework.security.oauth2.server.authorization.token.JwtEncodingContext
 import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenCustomizer
-import org.springframework.security.web.SecurityFilterChain
 import javax.sql.DataSource
 
 @Configuration
 class AuthorizationServerConfig {
-
-    @Bean
-    @Order(1)
-    fun authorizationServerSecurityFilterChain(
-        http: HttpSecurity,
-        context: ConfigurableApplicationContext
-    ): SecurityFilterChain {
-        OAuth2AuthorizationServerConfiguration.applyDefaultSecurity(http)
-        http.getConfigurer(OAuth2AuthorizationServerConfigurer::class.java)
-            .oidc { oidc -> oidc }
-        return http.build()
-    }
 
     @Bean
     fun registeredClientRepository(dataSource: DataSource): RegisteredClientRepository {
@@ -46,10 +28,7 @@ class AuthorizationServerConfig {
         dataSource: DataSource,
         registeredClientRepository: RegisteredClientRepository
     ): OAuth2AuthorizationService {
-        return JdbcOAuth2AuthorizationService(
-            JdbcTemplate(dataSource),
-            registeredClientRepository
-        )
+        return JdbcOAuth2AuthorizationService(JdbcTemplate(dataSource), registeredClientRepository)
     }
 
     @Bean
@@ -57,10 +36,7 @@ class AuthorizationServerConfig {
         dataSource: DataSource,
         registeredClientRepository: RegisteredClientRepository
     ): OAuth2AuthorizationConsentService {
-        return JdbcOAuth2AuthorizationConsentService(
-            JdbcTemplate(dataSource),
-            registeredClientRepository
-        )
+        return JdbcOAuth2AuthorizationConsentService(JdbcTemplate(dataSource), registeredClientRepository)
     }
 
     @Bean
@@ -77,17 +53,9 @@ class AuthorizationServerConfig {
                 claims["client_id"] = context.registeredClient.clientId
             }
 
-            // Add user-specific claims for authorization code flows
             val authorization = context.getAuthorization()
             if (authorization != null) {
-                val principalName = authorization.principalName
-                val attributes = authorization.getAttributes()
-
-                @Suppress("UNCHECKED_CAST")
-                val principal = attributes.getOrDefault(
-                    "java.security.Principal", null
-                )
-
+                val principal = authorization.getAttribute<Any>("java.security.Principal")
                 if (principal is IamPrincipal) {
                     context.claims.claims { claims ->
                         claims["email"] = principal.email
@@ -97,7 +65,7 @@ class AuthorizationServerConfig {
                         claims["user_type"] = principal.userType
                         if (principal.userType == "ADMIN") {
                             claims["roles"] = principal.authorities
-                                .map { it.authority }
+                                .mapNotNull { it.authority }
                                 .filter { it.startsWith("ROLE_") }
                                 .map { it.removePrefix("ROLE_") }
                         }

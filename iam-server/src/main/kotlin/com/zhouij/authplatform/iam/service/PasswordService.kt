@@ -23,8 +23,8 @@ class PasswordService {
         4       // iterations
     )
 
-    fun hashUser(password: String): String = userEncoder.encode(password)
-    fun hashAdmin(password: String): String = adminEncoder.encode(password)
+    fun hashUser(password: String): String = userEncoder.encode(password)!!
+    fun hashAdmin(password: String): String = adminEncoder.encode(password)!!
 
     fun matchesUser(rawPassword: String, encodedPassword: String): Boolean =
         userEncoder.matches(rawPassword, encodedPassword)
