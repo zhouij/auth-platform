@@ -1,0 +1,19 @@
+
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+.DS_Store
+Thumbs.db
+*.log
+.env
+.env.local
+
+# Docker
+*.pid

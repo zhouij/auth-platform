@@ -1,0 +1,31 @@
+[versions]
+springBoot = "3.5.14"
+springCloud = "2025.1.1"
+springAuthorizationServer = "1.5.7"
+springSession = "3.5.0"
+flyway = "11.10.0"
+testcontainers = "1.21.3"
+kotlin = "2.1.21"
+
+[libraries]
+# BOMs are imported via dependencyManagement in build.gradle.kts
+spring-session-jdbc = { module = "org.springframework.session:spring-session-jdbc", version.ref = "springSession" }
+
+# Authorization Server (1.x line)
+spring-authorization-server = { module = "org.springframework.security:spring-security-oauth2-authorization-server", version.ref = "springAuthorizationServer" }
+
+# Flyway
+flyway-postgres = { module = "org.flywaydb:flyway-database-postgresql" }
+
+# Testcontainers
+testcontainers-postgres = { module = "org.testcontainers:postgresql", version.ref = "testcontainers" }
+testcontainers-junit = { module = "org.testcontainers:junit-junit5", version.ref = "testcontainers" }
+
+[bundles]
+iam-starter = ["spring-session-jdbc"]
+
+[plugins]
+spring-boot = { id = "org.springframework.boot", version.ref = "springBoot" }
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-spring = { id = "org.jetbrains.kotlin.plugin.spring", version.ref = "kotlin" }
+flyway = { id = "org.flywaydb.flyway", version.ref = "flyway" }

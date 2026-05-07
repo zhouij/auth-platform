@@ -1,0 +1,125 @@
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  iam-server:
+    build:
+      context: .
+      dockerfile: iam-server/Dockerfile
+    ports:
+      - "9083:9083"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/iamdb
+      SPRING_DATASOURCE_USERNAME: iam_user
+      SPRING_DATASOURCE_PASSWORD: iam_pass
+      DB_SCHEMA: iam
+      IAM_INTERNAL_TOKEN: dev-internal-token
+      AUTH_BASE_URL: http://auth-server:9081
+      EMAIL_ENABLED: false
+      EMAIL_FROM: no-reply@localhost
+      EMAIL_RESET_LINK_BASE: http://localhost:3000/reset-password
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:9083/actuator/health/liveness || exit 1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  auth-server:
+    build:
+      context: .
+      dockerfile: auth-server/Dockerfile
+    ports:
+      - "9081:9081"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/authdb
+      SPRING_DATASOURCE_USERNAME: auth_user
+      SPRING_DATASOURCE_PASSWORD: auth_pass
+      DB_SCHEMA: auth
+      IAM_BASE_URL: http://iam-server:9083
+      IAM_INTERNAL_TOKEN: dev-internal-token
+      AUTH_ISSUER: http://localhost:9081
+      AUTH_SIGNING_KEY_PATH: /run/secrets/auth-signing-key.jwk
+    depends_on:
+      postgres:
+        condition: service_healthy
+      iam-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:9081/actuator/health/liveness || exit 1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  resource-server:
+    build:
+      context: .
+      dockerfile: resource-server/Dockerfile
+    ports:
+      - "9082:9082"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/resourcedb
+      SPRING_DATASOURCE_USERNAME: resource_user
+      SPRING_DATASOURCE_PASSWORD: resource_pass
+      DB_SCHEMA: resource_app
+      AUTH_ISSUER: http://localhost:9081
+      AUTH_JWKS_URI: http://auth-server:9081/oauth2/jwks
+    depends_on:
+      postgres:
+        condition: service_healthy
+      auth-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:9082/actuator/health/liveness || exit 1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    ports:
+      - "9080:9080"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      AUTH_ISSUER: http://localhost:9081
+      AUTH_JWKS_URI: http://auth-server:9081/oauth2/jwks
+    depends_on:
+      auth-server:
+        condition: service_healthy
+      resource-server:
+        condition: service_healthy
+      iam-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:9080/actuator/health/liveness || exit 1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+volumes:
+  pgdata:

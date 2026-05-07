@@ -1,0 +1,38 @@
+
+spring:
+  application:
+    name: iam-server
+  datasource:
+    url: jdbc:postgresql://localhost:5432/iamdb
+    username: iam_user
+    password: iam_pass
+  flyway:
+    enabled: true
+    default-schema: iam
+    schemas:
+      - iam
+    create-schemas: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate.default_schema: iam
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:9081
+          jwk-set-uri: http://localhost:9081/oauth2/jwks
+
+server:
+  port: 9083
+
+iam:
+  internal-token: dev-internal-token
+  signing-key-path:
+
+email:
+  enabled: false
+  from: no-reply@localhost
+  reset-link-base: http://localhost:3000/reset-password

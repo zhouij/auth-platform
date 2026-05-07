@@ -1,0 +1,45 @@
+
+spring:
+  application:
+    name: gateway
+  cloud:
+    gateway:
+      server:
+        webflux:
+          routes:
+            - id: resource-server
+              uri: http://localhost:9082
+              predicates:
+                - Path=/api/v1/**
+              filters:
+                - StripPrefix=1
+            - id: iam-server
+              uri: http://localhost:9083
+              predicates:
+                - Path=/iam/v1/**
+              filters:
+                - RewritePath=/iam/v1/(?<segment>.*), /api/v1/${segment}
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${AUTH_ISSUER:http://localhost:9081}
+          jwk-set-uri: ${AUTH_JWKS_URI:http://localhost:9081/oauth2/jwks}
+
+server:
+  port: 9080
+
+gateway:
+  public-paths:
+    - /actuator/health
+    - /actuator/health/liveness
+    - /actuator/health/readiness
+    - /iam/v1/auth/register
+    - /iam/v1/auth/login
+    - /iam/v1/auth/forgot-password
+    - /iam/v1/auth/reset-password
+    - /api/v1/public/**
+
+logging:
+  level:
+    org.springframework.cloud.gateway: DEBUG

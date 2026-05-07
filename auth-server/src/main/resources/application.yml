@@ -1,0 +1,38 @@
+
+server:
+  port: 9081
+
+spring:
+  application:
+    name: auth-server
+  datasource:
+    url: jdbc:postgresql://localhost:5432/authdb
+    username: \${AUTH_DB_USER:auth_user}
+    password: \${AUTH_DB_PASS:auth_pass}
+    driver-class-name: org.postgresql.Driver
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    schemas: auth
+    create-schemas: true
+  session:
+    jdbc:
+      initialize-schema: never
+    store-type: jdbc
+  thymeleaf:
+    prefix: classpath:/templates/
+    suffix: .html
+    cache: false
+
+iam:
+  base-url: \${IAM_BASE_URL:http://localhost:9083}
+  internal-token: \${IAM_INTERNAL_TOKEN:dev-internal-token}
+
+auth:
+  signing:
+    key-path: \${AUTH_SIGNING_KEY_PATH:}
+
+logging:
+  level:
+    org.springframework.security: DEBUG
+    com.authserver: DEBUG

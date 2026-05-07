@@ -1,0 +1,27 @@
+
+spring:
+  application:
+    name: resource-server
+  datasource:
+    url: jdbc:postgresql://localhost:5432/resourcedb
+    username: resource_user
+    password: resource_pass
+  flyway:
+    enabled: true
+    default-schema: resource_app
+    schemas:
+      - resource_app
+    create-schemas: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:9081
+          jwk-set-uri: http://localhost:9081/oauth2/jwks
+
+server:
+  port: 9082
