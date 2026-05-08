@@ -10,8 +10,7 @@ CREATE TABLE admin_users (
     credentials_changed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
-    last_login_at          TIMESTAMPTZ,
-    CONSTRAINT uq_admin_users_email UNIQUE (lower(email))
+    last_login_at          TIMESTAMPTZ
 );
 
 CREATE UNIQUE INDEX ux_admin_users_email ON admin_users (lower(email));
@@ -20,7 +19,7 @@ CREATE UNIQUE INDEX ux_admin_users_username ON admin_users (lower(username)) WHE
 
 -- Admin groups table
 CREATE TABLE admin_groups (
-    id          SERIAL PRIMARY KEY,
+    id          BIGSERIAL PRIMARY KEY,
     name        VARCHAR(100) NOT NULL UNIQUE,
     description VARCHAR(255)
 );
@@ -30,7 +29,7 @@ CREATE UNIQUE INDEX ux_admin_groups_name ON admin_groups (name);
 -- Admin group membership junction table
 CREATE TABLE admin_group_members (
     admin_user_id UUID NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
-    group_id      INTEGER NOT NULL REFERENCES admin_groups(id) ON DELETE CASCADE,
+    group_id      BIGINT NOT NULL REFERENCES admin_groups(id) ON DELETE CASCADE,
     PRIMARY KEY (admin_user_id, group_id)
 );
 

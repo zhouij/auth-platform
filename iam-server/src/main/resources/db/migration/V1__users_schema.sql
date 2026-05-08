@@ -11,8 +11,7 @@ CREATE TABLE users (
     credentials_changed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
-    last_login_at          TIMESTAMPTZ,
-    CONSTRAINT uq_users_email UNIQUE (lower(email))
+    last_login_at          TIMESTAMPTZ
 );
 
 CREATE UNIQUE INDEX ux_users_email ON users (lower(email));

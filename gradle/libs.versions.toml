@@ -1,6 +1,6 @@
 [versions]
 springBoot = "4.0.6"
-springCloud = "2025.0.2"
+springCloud = "2025.1.1"
 springAuthorizationServer = "7.0.5"
 springSession = "4.0.3"
 flyway = "12.5.0"

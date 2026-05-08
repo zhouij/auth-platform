@@ -1,7 +1,7 @@
 package com.zhouij.authplatform.gateway.filter
 
+import com.zhouij.authplatform.gateway.config.GatewaySecurityProperties
 import org.slf4j.LoggerFactory
-import org.springframework.beans.factory.annotation.Value
 import org.springframework.cloud.gateway.filter.GatewayFilterChain
 import org.springframework.cloud.gateway.filter.GlobalFilter
 import org.springframework.core.Ordered
@@ -14,12 +14,11 @@ import org.springframework.web.server.ServerWebExchange
 import reactor.core.publisher.Mono
 
 @Component
-class JwtHeaderEnrichmentFilter : GlobalFilter, Ordered {
+class JwtHeaderEnrichmentFilter(
+    private val properties: GatewaySecurityProperties
+) : GlobalFilter, Ordered {
 
     private val logger = LoggerFactory.getLogger(JwtHeaderEnrichmentFilter::class.java)
-
-    @Value("\${gateway.public-paths}")
-    private lateinit var publicPaths: List<String>
 
     override fun filter(
         exchange: ServerWebExchange,
@@ -28,7 +27,7 @@ class JwtHeaderEnrichmentFilter : GlobalFilter, Ordered {
         val path = exchange.request.uri.path
 
         // Skip enrichment for public paths
-        if (publicPaths.any { pathMatch(it, path) }) {
+        if (properties.publicPaths.any { pathMatch(it, path) }) {
             return chain.filter(exchange)
         }
 

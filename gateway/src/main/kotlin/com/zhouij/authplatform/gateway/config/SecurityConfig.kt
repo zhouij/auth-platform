@@ -1,23 +1,23 @@
 package com.zhouij.authplatform.gateway.config
 
-import org.springframework.beans.factory.annotation.Value
+import org.springframework.boot.context.properties.ConfigurationProperties
+import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.security.config.web.server.ServerHttpSecurity
 import org.springframework.security.web.server.SecurityWebFilterChain
 
 @Configuration
-class SecurityConfig {
-
-    @Value("\${gateway.public-paths}")
-    private lateinit var publicPaths: List<String>
-
+@EnableConfigurationProperties(GatewaySecurityProperties::class)
+class SecurityConfig(
+    private val properties: GatewaySecurityProperties
+) {
     @Bean
     fun securityWebFilterChain(http: ServerHttpSecurity): SecurityWebFilterChain {
         http
             .csrf { it.disable() }
             .authorizeExchange { exchanges ->
-                publicPaths.forEach { path ->
+                properties.publicPaths.forEach { path ->
                     exchanges.pathMatchers(path).permitAll()
                 }
                 exchanges.anyExchange().authenticated()
@@ -30,4 +30,9 @@ class SecurityConfig {
 
         return http.build()
     }
+}
+
+@ConfigurationProperties(prefix = "gateway")
+class GatewaySecurityProperties {
+    var publicPaths: List<String> = emptyList()
 }
