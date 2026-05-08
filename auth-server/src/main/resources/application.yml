@@ -7,8 +7,8 @@ spring:
     name: auth-server
   datasource:
     url: jdbc:postgresql://localhost:5432/authdb
-    username: \${AUTH_DB_USER:auth_user}
-    password: \${AUTH_DB_PASS:auth_pass}
+    username: ${AUTH_DB_USER:auth_user}
+    password: ${AUTH_DB_PASS:auth_pass}
     driver-class-name: org.postgresql.Driver
   flyway:
     enabled: true
@@ -25,12 +25,12 @@ spring:
     cache: false
 
 iam:
-  base-url: \${IAM_BASE_URL:http://localhost:9083}
-  internal-token: \${IAM_INTERNAL_TOKEN:dev-internal-token}
+  base-url: ${IAM_BASE_URL:http://localhost:9083}
+  internal-token: ${IAM_INTERNAL_TOKEN:dev-internal-token}
 
 auth:
   signing:
-    key-path: \${AUTH_SIGNING_KEY_PATH:}
+    key-path: ${AUTH_SIGNING_KEY_PATH:}
 
 logging:
   level:
