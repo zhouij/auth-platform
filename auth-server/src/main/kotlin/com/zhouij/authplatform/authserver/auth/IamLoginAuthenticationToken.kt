@@ -20,9 +20,7 @@ class IamLoginAuthenticationToken(
             credentials: Any,
             authorities: Collection<GrantedAuthority>
         ): IamLoginAuthenticationToken {
-            val token = IamLoginAuthenticationToken(principal, credentials, principal.userType, authorities)
-            token.isAuthenticated = true
-            return token
+            return IamLoginAuthenticationToken(principal, credentials, principal.userType, authorities)
         }
     }
 

@@ -41,6 +41,36 @@ class DemoController(
         )
     }
 
+    @GetMapping("/status")
+    fun status(@AuthenticationPrincipal jwt: Jwt): ResponseEntity<Map<String, Any>> {
+        val ownedResourceCount = resourceRepository.findByOwnerSubject(jwt.subject).size
+        val isAdmin = extractRole(jwt) == "ADMIN"
+        val visibleResourceCount = if (isAdmin) resourceRepository.count() else ownedResourceCount.toLong()
+
+        return ResponseEntity.ok(
+            mapOf(
+                "status" to "ok",
+                "service" to "resource-server",
+                "user" to mapOf(
+                    "subject" to jwt.subject,
+                    "email" to (jwt.claims["email"] ?: ""),
+                    "username" to (jwt.claims["preferred_username"] ?: ""),
+                    "userType" to (jwt.claims["user_type"] ?: "unknown"),
+                    "roles" to (jwt.claims["roles"] ?: emptyList<String>()),
+                    "scopes" to (jwt.claims["scope"] ?: "")
+                ),
+                "resources" to mapOf(
+                    "ownedCount" to ownedResourceCount,
+                    "visibleCount" to visibleResourceCount
+                ),
+                "token" to mapOf(
+                    "issuedAt" to (jwt.issuedAt?.toString() ?: ""),
+                    "expiresAt" to (jwt.expiresAt?.toString() ?: "")
+                )
+            )
+        )
+    }
+
     @GetMapping("/resources")
     @PreAuthorize("hasAuthority('SCOPE_read')")
     fun listResources(@AuthenticationPrincipal jwt: Jwt): ResponseEntity<List<Map<String, Any>>> {

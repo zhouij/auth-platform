@@ -1,0 +1,31 @@
+server:
+  port: 9084
+
+spring:
+  application:
+    name: web-client
+  security:
+    oauth2:
+      client:
+        registration:
+          auth-platform:
+            client-id: web-client
+            client-secret: secret
+            client-authentication-method: client_secret_basic
+            authorization-grant-type: authorization_code
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+            scope:
+              - openid
+              - profile
+              - read
+              - write
+        provider:
+          auth-platform:
+            authorization-uri: ${AUTH_AUTHORIZATION_URI:http://localhost:9081/oauth2/authorize}
+            token-uri: ${AUTH_TOKEN_URI:http://localhost:9081/oauth2/token}
+            jwk-set-uri: ${AUTH_JWKS_URI:http://localhost:9081/oauth2/jwks}
+            user-info-uri: ${AUTH_USER_INFO_URI:http://localhost:9081/userinfo}
+            user-name-attribute: sub
+
+gateway:
+  base-url: ${GATEWAY_BASE_URL:http://localhost:9080}

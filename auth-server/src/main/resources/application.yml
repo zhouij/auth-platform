@@ -29,6 +29,7 @@ iam:
   internal-token: ${IAM_INTERNAL_TOKEN:dev-internal-token}
 
 auth:
+  login-success-url: ${AUTH_LOGIN_SUCCESS_URL:/login/success}
   signing:
     key-path: ${AUTH_SIGNING_KEY_PATH:}
 

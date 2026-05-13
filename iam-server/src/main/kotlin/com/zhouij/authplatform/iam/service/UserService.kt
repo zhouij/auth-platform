@@ -30,8 +30,10 @@ class UserService(
         return userRepository.save(user)
     }
 
-    fun validateCredentials(email: String, password: String): UserEntity? {
-        val user = userRepository.findByEmailIgnoreCase(email).orElse(null) ?: return null
+    fun validateCredentials(identifier: String, password: String): UserEntity? {
+        val user = userRepository.findByEmailIgnoreCase(identifier).orElse(null)
+            ?: userRepository.findByUsernameIgnoreCase(identifier).orElse(null)
+            ?: return null
         if (!user.enabled) return null
         if (!passwordService.matchesUser(password, user.passwordHash)) return null
         return user

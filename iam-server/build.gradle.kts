@@ -2,6 +2,7 @@
 plugins {
     alias(libs.plugins.spring.boot)
     alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.kotlin.jpa)
     alias(libs.plugins.kotlin.spring)
 }
 
@@ -15,6 +16,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-mail")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.81")
 
     implementation("org.springframework.boot:spring-boot-flyway")
     implementation("org.flywaydb:flyway-core")

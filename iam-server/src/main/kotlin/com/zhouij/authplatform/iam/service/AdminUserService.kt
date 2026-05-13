@@ -42,8 +42,10 @@ class AdminUserService(
         return adminUserRepository.save(admin)
     }
 
-    fun validateCredentials(email: String, password: String): AdminUserEntity? {
-        val admin = adminUserRepository.findByEmailIgnoreCase(email).orElse(null) ?: return null
+    fun validateCredentials(identifier: String, password: String): AdminUserEntity? {
+        val admin = adminUserRepository.findByEmailIgnoreCase(identifier).orElse(null)
+            ?: adminUserRepository.findByUsernameIgnoreCase(identifier).orElse(null)
+            ?: return null
         if (!admin.enabled) return null
         if (!passwordService.matchesAdmin(password, admin.passwordHash)) return null
         return admin

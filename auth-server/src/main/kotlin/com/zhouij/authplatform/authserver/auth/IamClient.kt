@@ -15,8 +15,8 @@ import java.util.concurrent.atomic.AtomicReference
 
 @Component
 class IamClient(
-    @Value("\${iam.base-url}") private val iamBaseUrl: String,
-    @Value("\${iam.internal-token}") private val internalToken: String
+    @param:Value("\${iam.base-url}") private val iamBaseUrl: String,
+    @param:Value("\${iam.internal-token}") private val internalToken: String
 ) {
     private val logger = LoggerFactory.getLogger(IamClient::class.java)
 
