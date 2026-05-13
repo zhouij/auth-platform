@@ -60,6 +60,7 @@ Traffic normally enters through the gateway. The auth server is contacted direct
 | `auth-server` | `9081` | `authdb`, schema `auth` | OAuth2/OIDC authorization server, tokens, clients, sessions |
 | `gateway` | `9080` | none | JWT-validating reverse proxy |
 | `resource-server` | `9082` | `resourcedb`, schema `resource_app` | Sample protected API |
+| `web-client` | `9084` | none | Browser BFF / OAuth2 client |
 
 ## Tech Stack
 
@@ -98,6 +99,7 @@ Run the services in separate terminals:
 ./gradlew :auth-server:bootRun
 ./gradlew :resource-server:bootRun
 ./gradlew :gateway:bootRun
+./gradlew :web-client:bootRun
 ```
 
 Useful checks:
@@ -146,6 +148,7 @@ Recommended order:
 3. `./gradlew :auth-server:bootRun`
 4. `./gradlew :resource-server:bootRun`
 5. `./gradlew :gateway:bootRun`
+6. `./gradlew :web-client:bootRun`
 
 ## Databases
 
@@ -235,6 +238,18 @@ IAM seed data includes default admin groups and a default admin account in the I
 - [V3__seed_admin_groups.sql](iam-server/src/main/resources/db/migration/V3__seed_admin_groups.sql)
 - [V4__seed_default_admin.sql](iam-server/src/main/resources/db/migration/V4__seed_default_admin.sql)
 
+Default local admin:
+
+| Field | Value |
+|---|---|
+| Email | `admin@localhost` |
+| Username | `admin` |
+| Password | `admin123` |
+| Group | `FULL_ACCESS` |
+| Login account type | `Admin` |
+
+The login form accepts either the email or username.
+
 ## Common Requests
 
 ### Register a User
@@ -270,17 +285,33 @@ curl -s http://localhost:9080/api/v1/public/status
 
 curl -s -H "Authorization: Bearer $ACCESS_TOKEN" \
   http://localhost:9080/api/v1/whoami
+
+curl -s -H "Authorization: Bearer $ACCESS_TOKEN" \
+  http://localhost:9080/api/v1/status
+
+curl -s -H "Authorization: Bearer $ACCESS_TOKEN" \
+  http://localhost:9080/iam/v1/status
 ```
 
 ### Browser Authorization Code Flow
 
-Open:
+For the browser BFF flow, start `web-client` and open:
 
 ```text
-http://localhost:9081/oauth2/authorize?client_id=web-client&response_type=code&redirect_uri=http://localhost:3000/callback&scope=openid+read+write
+http://localhost:9084/
+```
+
+The web client sends you through auth-server login, stores a browser session, and calls JWT-protected gateway endpoints server-side with the OAuth access token.
+
+For a raw authorization URL, open:
+
+```text
+http://localhost:9081/oauth2/authorize?client_id=web-client&response_type=code&redirect_uri=http://localhost:9084/login/oauth2/code/auth-platform&scope=openid+profile+read+write
 ```
 
 Then log in with email, password, and account type.
+
+If you open the auth-server login page directly at `http://localhost:9081/login`, a successful login redirects to `http://localhost:9081/login/success` by default. Override that with `AUTH_LOGIN_SUCCESS_URL` if you want a different local success target.
 
 ## Gateway Routes
 

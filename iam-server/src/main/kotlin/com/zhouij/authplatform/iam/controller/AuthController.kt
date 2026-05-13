@@ -102,53 +102,79 @@ class AuthController(
         }
     }
 
+    @GetMapping("/status")
+    fun status(@AuthenticationPrincipal jwt: JwtAuthenticationToken): ResponseEntity<Map<String, Any>> {
+        val profile = currentUserProfile(jwt) ?: return ResponseEntity.notFound().build()
+
+        return ResponseEntity.ok(
+            mapOf(
+                "status" to "ok",
+                "service" to "iam-server",
+                "user" to profile,
+                "token" to tokenSummary(jwt)
+            )
+        )
+    }
+
     // Self-service: get own profile
     @GetMapping("/me")
     fun getProfile(@AuthenticationPrincipal jwt: JwtAuthenticationToken): ResponseEntity<Map<String, Any>> {
+        val profile = currentUserProfile(jwt) ?: return ResponseEntity.notFound().build()
+        return ResponseEntity.ok(profile)
+    }
+
+    private fun currentUserProfile(jwt: JwtAuthenticationToken): Map<String, Any>? {
         val userId = UUID.fromString(jwt.token.subject)
         val userType = jwt.token.claims["user_type"] as? String
 
         return when (userType?.uppercase()) {
             "ADMIN" -> {
                 val admin = adminUserService.findById(userId)
-                    ?: return ResponseEntity.notFound().build()
+                    ?: return null
                 val authorities = mutableListOf("ROLE_ADMIN")
                 val groupNames = admin.groups.map { it.name }
                 admin.groups.forEach { authorities.add("ROLE_ADMIN_GROUP_${it.name}") }
-                ResponseEntity.ok(
-                    mapOf(
-                        "userId" to admin.id.toString(),
-                        "email" to admin.email,
-                        "username" to (admin.username ?: admin.email.substringBefore('@')),
-                        "firstName" to (admin.firstName ?: ""),
-                        "lastName" to (admin.lastName ?: ""),
-                        "userType" to "ADMIN",
-                        "enabled" to admin.enabled,
-                        "authorities" to authorities,
-                        "groups" to groupNames,
-                        "createdAt" to admin.createdAt.toString()
-                    )
+                mapOf(
+                    "userId" to admin.id.toString(),
+                    "email" to admin.email,
+                    "username" to (admin.username ?: admin.email.substringBefore('@')),
+                    "firstName" to (admin.firstName ?: ""),
+                    "lastName" to (admin.lastName ?: ""),
+                    "userType" to "ADMIN",
+                    "enabled" to admin.enabled,
+                    "authorities" to authorities,
+                    "groups" to groupNames,
+                    "createdAt" to admin.createdAt.toString()
                 )
             }
             else -> {
                 val user = userService.findById(userId)
-                    ?: return ResponseEntity.notFound().build()
-                ResponseEntity.ok(
-                    mapOf(
-                        "userId" to user.id.toString(),
-                        "email" to user.email,
-                        "username" to (user.username ?: user.email.substringBefore('@')),
-                        "firstName" to (user.firstName ?: ""),
-                        "lastName" to (user.lastName ?: ""),
-                        "userType" to "USER",
-                        "enabled" to user.enabled,
-                        "emailVerified" to user.emailVerified,
-                        "authorities" to emptyList<String>(),
-                        "createdAt" to user.createdAt.toString()
-                    )
+                    ?: return null
+                mapOf(
+                    "userId" to user.id.toString(),
+                    "email" to user.email,
+                    "username" to (user.username ?: user.email.substringBefore('@')),
+                    "firstName" to (user.firstName ?: ""),
+                    "lastName" to (user.lastName ?: ""),
+                    "userType" to "USER",
+                    "enabled" to user.enabled,
+                    "emailVerified" to user.emailVerified,
+                    "authorities" to emptyList<String>(),
+                    "createdAt" to user.createdAt.toString()
                 )
             }
         }
+    }
+
+    private fun tokenSummary(jwt: JwtAuthenticationToken): Map<String, Any> {
+        return mapOf(
+            "subject" to jwt.token.subject,
+            "clientId" to (jwt.token.claims["azp"] ?: ""),
+            "scopes" to (jwt.token.claims["scope"] ?: ""),
+            "authorities" to jwt.authorities.map { it.authority },
+            "issuedAt" to (jwt.token.issuedAt?.toString() ?: ""),
+            "expiresAt" to (jwt.token.expiresAt?.toString() ?: "")
+        )
     }
 
     // Self-service: update own profile

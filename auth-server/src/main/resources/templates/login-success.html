@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Signed In</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #f5f5f5;
+            display: flex; justify-content: center; align-items: center; min-height: 100vh;
+        }
+        .container { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); width: 100%; max-width: 480px; }
+        h1 { margin-bottom: 1rem; font-size: 1.5rem; text-align: center; }
+        .status { background: #e8f5e9; color: #1e8e3e; padding: 0.75rem; border-radius: 4px; margin-bottom: 1rem; font-size: 0.875rem; }
+        dl { display: grid; grid-template-columns: 8rem 1fr; gap: 0.75rem; font-size: 0.95rem; }
+        dt { font-weight: 600; color: #444; }
+        dd { color: #111; overflow-wrap: anywhere; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Signed In</h1>
+        <div class="status">Authentication succeeded.</div>
+        <dl>
+            <dt>Email</dt>
+            <dd th:text="${email}"></dd>
+            <dt>Username</dt>
+            <dd th:text="${username}"></dd>
+            <dt>Account type</dt>
+            <dd th:text="${userType}"></dd>
+            <dt>Authorities</dt>
+            <dd th:text="${authorities}"></dd>
+        </dl>
+    </div>
+</body>
+</html>
