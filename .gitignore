@@ -19,3 +19,7 @@ Thumbs.db
 
 # Docker
 *.pid
+
+# Gradle user home redirected into workspace (sandboxed builds)
+.gradle-home/
+.kotlin/

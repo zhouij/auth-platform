@@ -8,6 +8,8 @@ import com.nimbusds.jose.proc.SecurityContext
 import org.slf4j.LoggerFactory
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.security.config.annotation.web.configuration.OAuth2AuthorizationServerConfiguration
+import org.springframework.security.oauth2.jwt.JwtDecoder
 import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.interfaces.RSAPrivateKey
@@ -32,6 +34,10 @@ class JwkConfig {
         logger.info("JWK source initialized with key ID: {}", rsaKey.keyID)
         return ImmutableJWKSet(JWKSet(rsaKey))
     }
+
+    @Bean
+    fun jwtDecoder(jwkSource: JWKSource<SecurityContext>): JwtDecoder =
+        OAuth2AuthorizationServerConfiguration.jwtDecoder(jwkSource)
 
     private fun generateKeyPair(): KeyPair {
         val generator = KeyPairGenerator.getInstance("RSA")

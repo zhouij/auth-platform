@@ -1,13 +1,13 @@
 package com.zhouij.authplatform.gateway.filter
 
 import com.zhouij.authplatform.gateway.config.GatewaySecurityProperties
-import org.slf4j.LoggerFactory
 import org.springframework.cloud.gateway.filter.GatewayFilterChain
 import org.springframework.cloud.gateway.filter.GlobalFilter
 import org.springframework.core.Ordered
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
 import org.springframework.security.core.context.ReactiveSecurityContextHolder
+import org.springframework.security.core.context.SecurityContextImpl
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken
 import org.springframework.stereotype.Component
 import org.springframework.web.server.ServerWebExchange
@@ -17,8 +17,6 @@ import reactor.core.publisher.Mono
 class JwtHeaderEnrichmentFilter(
     private val properties: GatewaySecurityProperties
 ) : GlobalFilter, Ordered {
-
-    private val logger = LoggerFactory.getLogger(JwtHeaderEnrichmentFilter::class.java)
 
     override fun filter(
         exchange: ServerWebExchange,
@@ -31,13 +29,20 @@ class JwtHeaderEnrichmentFilter(
             return chain.filter(exchange)
         }
 
+        // Note: do NOT use getContext().flatMap { ... }.switchIfEmpty(...) here.
+        // chain.filter() returns Mono<Void>, which completes EMPTY, so the
+        // switchIfEmpty fallback would fire after a successful downstream
+        // response and overwrite it with a 401. Instead, substitute an empty
+        // SecurityContext as a sentinel for the "no context" case.
         return ReactiveSecurityContextHolder.getContext()
+            .defaultIfEmpty(SecurityContextImpl())
             .flatMap { securityContext ->
                 val auth = securityContext.authentication
                 if (auth is JwtAuthenticationToken && auth.isAuthenticated) {
                     val jwt = auth.token
 
-                    // Strip potentially forged inbound headers
+                    // Strip potentially forged inbound identity headers, then
+                    // re-add them from the verified JWT claims.
                     val sanitizedRequest = exchange.request.mutate()
                         .headers { headers ->
                             headers.remove("X-Authenticated-Subject")
@@ -49,9 +54,11 @@ class JwtHeaderEnrichmentFilter(
                         .header(HttpHeaders.AUTHORIZATION, "Bearer ${jwt.tokenValue}")
                         .header("X-Authenticated-Subject", jwt.subject ?: "unknown")
                         .header("X-Authenticated-Client", jwt.claims["client_id"]?.toString() ?: "unknown")
-                        .header("X-Authenticated-Scopes", jwt.claims["scope"]?.toString() ?: "")
-                        .header("X-Authenticated-Roles",
-                            (jwt.claims["roles"] as? List<*>)?.joinToString(",") ?: "")
+                        .header("X-Authenticated-Scopes", scopesFrom(jwt.claims["scope"]))
+                        .header(
+                            "X-Authenticated-Roles",
+                            (jwt.claims["roles"] as? List<*>)?.joinToString(",") ?: ""
+                        )
                         .header("X-Authenticated-User-Type", jwt.claims["user_type"]?.toString() ?: "")
                         .build()
 
@@ -61,12 +68,6 @@ class JwtHeaderEnrichmentFilter(
                     exchange.response.setComplete()
                 }
             }
-            .switchIfEmpty(
-                Mono.defer {
-                    exchange.response.statusCode = HttpStatus.UNAUTHORIZED
-                    exchange.response.setComplete()
-                }
-            )
     }
 
     override fun getOrder(): Int = Ordered.LOWEST_PRECEDENCE
@@ -77,5 +78,11 @@ class JwtHeaderEnrichmentFilter(
             return path == prefix || path.startsWith("$prefix/")
         }
         return pattern == path
+    }
+
+    private fun scopesFrom(claim: Any?): String = when (claim) {
+        is String -> claim
+        is Collection<*> -> claim.filterIsInstance<String>().joinToString(" ")
+        else -> ""
     }
 }
