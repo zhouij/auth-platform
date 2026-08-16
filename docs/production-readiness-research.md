@@ -2,6 +2,10 @@
 
 > Research snapshot saved 2026-08-15. The goal of this document is to let a
 > fresh session (or a new teammate) pick up exactly where the analysis ended.
+>
+> **Update (2026-08-15, second session):** most of section 4 has now been
+> implemented and verified end-to-end — see section 6 at the bottom for the
+> follow-up summary, what was done, and what remains.
 
 ## TL;DR
 
@@ -221,3 +225,98 @@ docker compose up -d postgres
   `iam.users` between runs.
 - `gradlew` / `smoke-test.sh` had CRLF endings (fixed in PR #2); if a fresh
   clone still fails to execute, check line endings again.
+
+---
+
+## 6. Follow-up session (2026-08-15): what was implemented & verified
+
+Shipped as a pull request against `main` (branch `feature/production-readiness`).
+The PR #2 fix branch (`fix/boot4-security7-production-readiness`) was already
+merged upstream as `fbca5e4` and deleted on GitHub; the stale local copy has
+been removed.
+
+### Implemented and verified against the running stack
+
+- **A.1 Persistent signing keys — DONE.** auth-server loads/persists a JWKSet
+  JSON file (`AUTH_SIGNING_KEY_PATH`; deterministic `kid`; 0600 perms; first
+  key signs, extra keys stay in the set for rotation). IAM persists a base64
+  HMAC key (`IAM_SIGNING_KEY_PATH`) for reset/verification tokens, with
+  optional `iam.signing.previous-key-paths` rotation keys. **Verified:** kid
+  stable across restarts; a token issued before an auth-server restart still
+  validates at the gateway and resource-server afterward (the original A.1
+  key-rotation experiment now passes).
+- **A.2 Hardcoded issuer/audience — DONE.** `AUTH_ISSUER`, `AUTH_TOKEN_AUDIENCE`
+  (comma-list), `AUTH_JWKS_URI` env-driven everywhere; IAM SecurityConfig no
+  longer hardcodes the JWKS URI.
+- **A.3 Dev secrets — DONE for config.** All DB creds, the internal token, and
+  the web-client secret are env-driven with dev defaults; each server has a
+  `ProductionSecretsGuard` that fails startup under the `prod` profile when a
+  default secret or a missing signing key path is detected.
+- **A.4 Abuse controls — DONE.** IAM persists failed-login state
+  (`login_attempts` table; `iam.login.*` config; 5 failures → 15-min lockout;
+  429 + `Retry-After`, applied to both the public and internal login paths).
+  Gateway adds a per-IP fixed-window rate limiter on login/register/forgot
+  (in-memory — swap for Redis `RequestRateLimiter` for multi-replica).
+  **Verified:** 6th failed attempt returns 429 + Retry-After; gateway rejects
+  the 31st request/min.
+- **A.5 Email — DONE for SMTP + verification.** `EmailService` sends real mail
+  when `email.enabled=true` + `spring.mail.*`; otherwise logs the link.
+  Registration issues a 24-h self-contained verification token; new
+  `GET /api/v1/auth/verify-email` endpoint flips `emailVerified` (verified).
+  `email.verification-required` (default false) gates login on verification.
+- **A.6 Revocation gap — PARTIAL (denylist plumbing done, enforcement opt-in).**
+  Access/refresh TTLs are operator-controlled per client read
+  (`AUTH_ACCESS_TOKEN_TTL` default 15m, `AUTH_REFRESH_TOKEN_TTL` 12h; verified
+  900s access TTL). Revocation now denylists the jti of every still-valid
+  issued access token (`oauth2_token_denylist`, migration V8) before deleting
+  the authorizations; new internal `GET /internal/tokens/revoked/{jti}`.
+  Gateway `TokenRevocationCheckFilter` enforces it (cached; fails open) when
+  `GATEWAY_REVOCATION_CHECK_ENABLED=true` — off by default.
+- **A.7 Audit logging — DONE.** `iam.audit_log` table + `AuditLogService`
+  (REQUIRES_NEW so failures survive rollbacks): login success/failure/lockout,
+  register, reset request/complete, password change, admin create/update/
+  enable/disable, password resets — with actor, target, IP, outcome.
+  **Verified:** lockout/login-failure rows present with correct IP.
+- **A.8 Observability — DONE for metrics.** Prometheus registry on all five
+  services (`/actuator/prometheus`), `show-details: never`, probes enabled;
+  DEBUG logging removed. Tracing (Micrometer/Otel) still missing.
+- **B.10 Session cleanup — PARTIAL.** auth-server runs the Spring Session JDBC
+  hourly cleanup cron. web-client still uses in-memory sessions (needs a
+  datasource + spring-session-jdbc to match).
+- **B.12 Password policy — DONE for history.** `password_history` table keeps
+  the last N hashes (default 5); reuse is rejected on register/change/reset/
+  admin-reset (400 "Password was used recently"). **Verified** via reset flow.
+- **C.14 Containerization/CI — DONE.** docker-compose now builds and runs all
+  five services (healthchecks, depends_on, secret volumes for signing keys).
+  Dockerfiles updated to Gradle 9.5. `.github/workflows/ci.yml`: build+tests,
+  an e2e smoke job (Postgres via compose, services via bootJars,
+  `smoke-test.sh`), and a docker-build job. Workflow not yet executed on
+  GitHub.
+- **C.15 Tests — IMPROVED.** New fast unit tests: JWK persistence/kid
+  stability, IAM token roundtrip/tamper/rotation, login lockout, password
+  history, gateway rate limiter. Testcontainers OAuth-flow tests (the
+  highest-value gap) still open.
+- **C.16 Network hardening — PARTIAL.** Configurable HSTS + security headers
+  on gateway/auth-server, gateway CORS config, forged `X-Forwarded-*`/`Forwarded`
+  headers overwritten for every request. TLS termination itself is still a
+  deployment-level concern (put a TLS proxy in front of the gateway).
+- **C.17 Housekeeping — DONE.** Stray `spring-boot-flyway-4.0.6.jar` deleted,
+  root-level jars gitignored, fix branch merged into local `main` and deleted
+  (remote branch deletion needs a push).
+
+### Not implemented (unchanged from section 4)
+
+- **B.9** consent screen (web-client consent remains force-disabled), **B.11**
+  dynamic client registration (RFC 7591), **B.13** fine-grained authz (OPA/
+  Cedar), **A.6** enforcement-by-default (flip the gateway switch per env),
+  **A.8** tracing, **C.15** OAuth-flow integration tests, **C.16** TLS
+  termination, and all of section D (MFA, enterprise SSO, reference/DPoP
+  tokens, privacy pages, compliance).
+
+### Verification environment notes (unchanged from section 5, still apply)
+
+Sandbox quirks: `GRADLE_USER_HOME=$PWD/.gradle-home` (its `gradle.properties`
+now also pins `kotlin.compiler.execution.strategy=in-process` and disables the
+daemon); `/tmp` is per-shell ephemeral — keep run logs/keys inside the repo
+(e.g. `.run-keys/`, gitignored). Smoke test stays non-idempotent for
+`smoketest@example.com`.
