@@ -5,7 +5,7 @@ import com.zhouij.authplatform.iam.service.PasswordResetService
 import com.zhouij.authplatform.iam.service.UserService
 import org.springframework.http.ResponseEntity
 import org.springframework.security.core.annotation.AuthenticationPrincipal
-import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken
+import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.web.bind.annotation.*
 import java.util.UUID
 
@@ -103,7 +103,7 @@ class AuthController(
     }
 
     @GetMapping("/status")
-    fun status(@AuthenticationPrincipal jwt: JwtAuthenticationToken): ResponseEntity<Map<String, Any>> {
+    fun status(@AuthenticationPrincipal jwt: Jwt): ResponseEntity<Map<String, Any>> {
         val profile = currentUserProfile(jwt) ?: return ResponseEntity.notFound().build()
 
         return ResponseEntity.ok(
@@ -118,14 +118,17 @@ class AuthController(
 
     // Self-service: get own profile
     @GetMapping("/me")
-    fun getProfile(@AuthenticationPrincipal jwt: JwtAuthenticationToken): ResponseEntity<Map<String, Any>> {
+    fun getProfile(@AuthenticationPrincipal jwt: Jwt): ResponseEntity<Map<String, Any>> {
         val profile = currentUserProfile(jwt) ?: return ResponseEntity.notFound().build()
         return ResponseEntity.ok(profile)
     }
 
-    private fun currentUserProfile(jwt: JwtAuthenticationToken): Map<String, Any>? {
-        val userId = UUID.fromString(jwt.token.subject)
-        val userType = jwt.token.claims["user_type"] as? String
+    private fun currentUserProfile(jwt: Jwt): Map<String, Any>? {
+        // The subject is a user UUID for end-user tokens; service-account
+        // (client_credentials) tokens carry a client id instead.
+        val userId = runCatching { UUID.fromString(jwt.subject) }.getOrNull()
+            ?: return null
+        val userType = jwt.claims["user_type"] as? String
 
         return when (userType?.uppercase()) {
             "ADMIN" -> {
@@ -166,14 +169,14 @@ class AuthController(
         }
     }
 
-    private fun tokenSummary(jwt: JwtAuthenticationToken): Map<String, Any> {
+    private fun tokenSummary(jwt: Jwt): Map<String, Any> {
         return mapOf(
-            "subject" to jwt.token.subject,
-            "clientId" to (jwt.token.claims["azp"] ?: ""),
-            "scopes" to (jwt.token.claims["scope"] ?: ""),
-            "authorities" to jwt.authorities.map { it.authority },
-            "issuedAt" to (jwt.token.issuedAt?.toString() ?: ""),
-            "expiresAt" to (jwt.token.expiresAt?.toString() ?: "")
+            "subject" to jwt.subject,
+            "clientId" to (jwt.claims["azp"] ?: ""),
+            "scopes" to (jwt.claims["scope"] ?: ""),
+            "authorities" to jwt.claims["roles"].toString(),
+            "issuedAt" to (jwt.issuedAt?.toString() ?: ""),
+            "expiresAt" to (jwt.expiresAt?.toString() ?: "")
         )
     }
 
@@ -181,10 +184,11 @@ class AuthController(
     @PutMapping("/me")
     fun updateProfile(
         @RequestBody request: UpdateProfileRequest,
-        @AuthenticationPrincipal jwt: JwtAuthenticationToken
+        @AuthenticationPrincipal jwt: Jwt
     ): ResponseEntity<Map<String, String>> {
-        val userId = UUID.fromString(jwt.token.subject)
-        val userType = jwt.token.claims["user_type"] as? String
+        val userId = runCatching { UUID.fromString(jwt.subject) }.getOrNull()
+            ?: return ResponseEntity.notFound().build()
+        val userType = jwt.claims["user_type"] as? String
 
         return try {
             when (userType?.uppercase()) {
@@ -203,10 +207,11 @@ class AuthController(
     @PutMapping("/me/password")
     fun changePassword(
         @RequestBody request: ChangePasswordRequest,
-        @AuthenticationPrincipal jwt: JwtAuthenticationToken
+        @AuthenticationPrincipal jwt: Jwt
     ): ResponseEntity<Map<String, String>> {
-        val userId = UUID.fromString(jwt.token.subject)
-        val userType = jwt.token.claims["user_type"] as? String
+        val userId = runCatching { UUID.fromString(jwt.subject) }.getOrNull()
+            ?: return ResponseEntity.notFound().build()
+        val userType = jwt.claims["user_type"] as? String
 
         val result = when (userType?.uppercase()) {
             "ADMIN" -> adminUserService.changePassword(userId, request.currentPassword, request.newPassword)

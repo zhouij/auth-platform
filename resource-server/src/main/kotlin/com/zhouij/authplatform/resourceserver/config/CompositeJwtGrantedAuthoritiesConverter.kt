@@ -11,7 +11,14 @@ class CompositeJwtGrantedAuthoritiesConverter : Converter<Jwt, Collection<Grante
         val authorities = mutableSetOf<GrantedAuthority>()
 
         // OAuth2 scopes -> SCOPE_read, SCOPE_write
-        val scopes = jwt.claims["scope"] as? String
+        // The scope claim may be a space-delimited String or (as issued by
+        // Spring Authorization Server 7) a JSON array of strings.
+        val scopeClaim = jwt.claims["scope"]
+        val scopes = when (scopeClaim) {
+            is String -> scopeClaim
+            is Collection<*> -> scopeClaim.filterIsInstance<String>().joinToString(" ")
+            else -> null
+        }
         if (scopes != null) {
             scopes.split(" ").mapTo(authorities) { SimpleGrantedAuthority("SCOPE_$it") }
         }

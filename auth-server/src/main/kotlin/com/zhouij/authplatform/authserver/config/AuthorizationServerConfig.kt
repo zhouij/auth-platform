@@ -1,9 +1,11 @@
 package com.zhouij.authplatform.authserver.config
 
 import com.zhouij.authplatform.authserver.auth.IamPrincipal
+import com.zhouij.authplatform.authserver.auth.ProfileEnrichingAuthorizationService
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationConsentService
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationService
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationConsentService
@@ -28,7 +30,8 @@ class AuthorizationServerConfig {
         dataSource: DataSource,
         registeredClientRepository: RegisteredClientRepository
     ): OAuth2AuthorizationService {
-        return JdbcOAuth2AuthorizationService(JdbcTemplate(dataSource), registeredClientRepository)
+        val jdbcService = JdbcOAuth2AuthorizationService(JdbcTemplate(dataSource), registeredClientRepository)
+        return ProfileEnrichingAuthorizationService(jdbcService)
     }
 
     @Bean
@@ -56,19 +59,41 @@ class AuthorizationServerConfig {
             val authorization = context.getAuthorization()
             if (authorization != null) {
                 val principal = authorization.getAttribute<Any>("java.security.Principal")
-                if (principal is IamPrincipal) {
-                    context.claims.claims { claims ->
-                        claims["email"] = principal.email
-                        claims["preferred_username"] = principal.username
-                        claims["given_name"] = principal.firstName
-                        claims["family_name"] = principal.lastName
-                        claims["user_type"] = principal.userType
-                        if (principal.userType == "ADMIN") {
-                            claims["roles"] = principal.authorities
-                                .mapNotNull { it.authority }
-                                .filter { it.startsWith("ROLE_") }
-                                .map { it.removePrefix("ROLE_") }
-                        }
+                val iamPrincipal = when (principal) {
+                    is IamPrincipal -> principal
+                    is UsernamePasswordAuthenticationToken -> principal.principal as? IamPrincipal
+                    else -> null
+                }
+                @Suppress("UNCHECKED_CAST")
+                val profile: Map<String, Any> = if (iamPrincipal != null) {
+                    mapOf(
+                        "email" to iamPrincipal.email,
+                        "preferred_username" to iamPrincipal.username,
+                        "given_name" to iamPrincipal.firstName,
+                        "family_name" to iamPrincipal.lastName,
+                        "user_type" to iamPrincipal.userType,
+                        "roles" to iamPrincipal.authorities
+                            .mapNotNull { it.authority }
+                            .filter { it.startsWith("ROLE_") }
+                            .map { it.removePrefix("ROLE_") }
+                    )
+                } else {
+                    // Persisted (refresh) form: profile stored as a plain map
+                    (authorization.getAttribute<Map<String, Any>>(
+                        ProfileEnrichingAuthorizationService.PROFILE_ATTRIBUTE
+                    ) ?: emptyMap())
+                }
+
+                context.claims.claims { claims ->
+                    claims["email"] = profile["email"]
+                    claims["preferred_username"] = profile["preferred_username"]
+                    claims["given_name"] = profile["given_name"]
+                    claims["family_name"] = profile["family_name"]
+                    claims["user_type"] = profile["user_type"]
+                    @Suppress("UNCHECKED_CAST")
+                    val roles = profile["roles"] as? List<String>
+                    if (!roles.isNullOrEmpty()) {
+                        claims["roles"] = roles
                     }
                 }
             }

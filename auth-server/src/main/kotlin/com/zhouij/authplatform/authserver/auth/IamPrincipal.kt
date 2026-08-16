@@ -12,7 +12,12 @@ data class IamPrincipal(
     val userType: String,
     val enabled: Boolean,
     val authorities: Collection<GrantedAuthority>
-) {
+) : java.security.Principal {
+
+    // Used by Authentication.getName() and therefore as the oauth2_authorization
+    // principal_name (max 200 chars) and the default JWT "sub" claim.
+    override fun getName(): String = userId
+
     companion object {
         fun fromResponse(data: Map<String, Any>): IamPrincipal {
             val authorities = (data["authorities"] as? List<*>)?.map {
