@@ -1,3 +1,4 @@
+name: auth-platform
 
 services:
   postgres:
@@ -14,7 +15,152 @@ services:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 3s
-      retries: 5
+      retries: 10
+
+  iam-server:
+    build:
+      context: .
+      dockerfile: iam-server/Dockerfile
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      IAM_DB_HOST: postgres
+      IAM_DB_USER: iam_user
+      IAM_DB_PASS: ${IAM_DB_PASS:-iam_pass}
+      IAM_INTERNAL_TOKEN: ${IAM_INTERNAL_TOKEN:-dev-internal-token}
+      IAM_SIGNING_KEY_PATH: /secrets/iam-signing.key
+      AUTH_ISSUER: ${AUTH_ISSUER:-http://localhost:9081}
+      AUTH_JWKS_URI: http://auth-server:9081/oauth2/jwks
+      EMAIL_ENABLED: ${EMAIL_ENABLED:-false}
+      EMAIL_RESET_LINK_BASE: ${EMAIL_RESET_LINK_BASE:-http://localhost:3000/reset-password}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+    volumes:
+      - iam-secrets:/secrets
+    ports:
+      - "9083:9083"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9083/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  auth-server:
+    build:
+      context: .
+      dockerfile: auth-server/Dockerfile
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      AUTH_DB_HOST: postgres
+      AUTH_DB_USER: auth_user
+      AUTH_DB_PASS: ${AUTH_DB_PASS:-auth_pass}
+      IAM_BASE_URL: http://iam-server:9083
+      IAM_INTERNAL_TOKEN: ${IAM_INTERNAL_TOKEN:-dev-internal-token}
+      AUTH_SIGNING_KEY_PATH: /secrets/auth-signing.jwk
+      AUTH_ISSUER: ${AUTH_ISSUER:-http://localhost:9081}
+      AUTH_TOKEN_AUDIENCE: ${AUTH_TOKEN_AUDIENCE:-resource-server}
+      AUTH_ACCESS_TOKEN_TTL: ${AUTH_ACCESS_TOKEN_TTL:-15m}
+      AUTH_REFRESH_TOKEN_TTL: ${AUTH_REFRESH_TOKEN_TTL:-12h}
+      AUTH_HSTS_ENABLED: ${AUTH_HSTS_ENABLED:-false}
+    volumes:
+      - auth-secrets:/secrets
+    ports:
+      - "9081:9081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      iam-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9081/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  resource-server:
+    build:
+      context: .
+      dockerfile: resource-server/Dockerfile
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      RESOURCE_DB_HOST: postgres
+      RESOURCE_DB_USER: resource_user
+      RESOURCE_DB_PASS: ${RESOURCE_DB_PASS:-resource_pass}
+      AUTH_ISSUER: ${AUTH_ISSUER:-http://localhost:9081}
+      AUTH_JWKS_URI: http://auth-server:9081/oauth2/jwks
+    ports:
+      - "9082:9082"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9082/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      RESOURCE_SERVER_URL: http://resource-server:9082
+      IAM_SERVER_URL: http://iam-server:9083
+      AUTH_ISSUER: ${AUTH_ISSUER:-http://localhost:9081}
+      AUTH_JWKS_URI: http://auth-server:9081/oauth2/jwks
+      IAM_INTERNAL_TOKEN: ${IAM_INTERNAL_TOKEN:-dev-internal-token}
+      GATEWAY_HSTS_ENABLED: ${GATEWAY_HSTS_ENABLED:-false}
+      GATEWAY_CORS_ALLOWED_ORIGINS: ${GATEWAY_CORS_ALLOWED_ORIGINS:-}
+      GATEWAY_REVOCATION_CHECK_ENABLED: ${GATEWAY_REVOCATION_CHECK_ENABLED:-false}
+    ports:
+      - "9080:9080"
+    depends_on:
+      auth-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9080/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  web-client:
+    build:
+      context: .
+      dockerfile: web-client/Dockerfile
+    environment:
+      WEB_CLIENT_ID: ${WEB_CLIENT_ID:-web-client}
+      WEB_CLIENT_SECRET: ${WEB_CLIENT_SECRET:-secret}
+      # authorization-uri is where the BROWSER is sent — host-reachable URL.
+      # token/jwks/userinfo URIs are called server-side by the BFF itself.
+      AUTH_AUTHORIZATION_URI: ${AUTH_AUTHORIZATION_URI:-http://localhost:9081/oauth2/authorize}
+      AUTH_TOKEN_URI: http://auth-server:9081/oauth2/token
+      AUTH_JWKS_URI: http://auth-server:9081/oauth2/jwks
+      AUTH_USER_INFO_URI: http://auth-server:9081/userinfo
+      GATEWAY_BASE_URL: http://gateway:9080
+    ports:
+      - "9084:9084"
+    depends_on:
+      auth-server:
+        condition: service_healthy
+      gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9084/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
 
 volumes:
   pgdata:
+  iam-secrets:
+  auth-secrets:

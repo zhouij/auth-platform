@@ -1,12 +1,12 @@
 
 spring:
   datasource:
-    url: jdbc:postgresql://postgres:5432/resourcedb
-    username: resource_user
-    password: resource_pass
+    url: jdbc:postgresql://${RESOURCE_DB_HOST:postgres}:5432/resourcedb
+    username: ${RESOURCE_DB_USER:resource_user}
+    password: ${RESOURCE_DB_PASS:resource_pass}
   security:
     oauth2:
       resourceserver:
         jwt:
-          issuer-uri: http://localhost:9081
-          jwk-set-uri: http://auth-server:9081/oauth2/jwks
+          issuer-uri: ${AUTH_ISSUER:http://localhost:9081}
+          jwk-set-uri: ${AUTH_JWKS_URI:http://auth-server:9081/oauth2/jwks}

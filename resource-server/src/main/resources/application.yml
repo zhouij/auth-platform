@@ -1,11 +1,10 @@
-
 spring:
   application:
     name: resource-server
   datasource:
-    url: jdbc:postgresql://localhost:5432/resourcedb
-    username: resource_user
-    password: resource_pass
+    url: jdbc:postgresql://${RESOURCE_DB_HOST:localhost}:5432/resourcedb
+    username: ${RESOURCE_DB_USER:resource_user}
+    password: ${RESOURCE_DB_PASS:resource_pass}
   flyway:
     enabled: true
     default-schema: resource_app
@@ -22,8 +21,19 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          issuer-uri: http://localhost:9081
-          jwk-set-uri: http://localhost:9081/oauth2/jwks
+          issuer-uri: ${AUTH_ISSUER:http://localhost:9081}
+          jwk-set-uri: ${AUTH_JWKS_URI:http://localhost:9081/oauth2/jwks}
 
 server:
   port: 9082
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never

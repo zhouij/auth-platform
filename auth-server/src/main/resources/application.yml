@@ -6,7 +6,7 @@ spring:
   application:
     name: auth-server
   datasource:
-    url: jdbc:postgresql://localhost:5432/authdb
+    url: jdbc:postgresql://${AUTH_DB_HOST:localhost}:5432/authdb
     username: ${AUTH_DB_USER:auth_user}
     password: ${AUTH_DB_PASS:auth_pass}
     driver-class-name: org.postgresql.Driver
@@ -20,6 +20,8 @@ spring:
   session:
     jdbc:
       initialize-schema: never
+      # Hourly cleanup of expired Spring Session rows (avoid unbounded growth)
+      cleanup-cron: "0 0 * * * *"
     store-type: jdbc
   thymeleaf:
     prefix: classpath:/templates/
@@ -31,11 +33,30 @@ iam:
   internal-token: ${IAM_INTERNAL_TOKEN:dev-internal-token}
 
 auth:
+  issuer: ${AUTH_ISSUER:http://localhost:9081}
   login-success-url: ${AUTH_LOGIN_SUCCESS_URL:/login/success}
   signing:
     key-path: ${AUTH_SIGNING_KEY_PATH:}
+  token:
+    audience: ${AUTH_TOKEN_AUDIENCE:resource-server}
+    access-ttl: ${AUTH_ACCESS_TOKEN_TTL:15m}
+    refresh-ttl: ${AUTH_REFRESH_TOKEN_TTL:12h}
+  security:
+    # HSTS only makes sense behind TLS; enable in prod/docker deployments.
+    hsts-enabled: ${AUTH_HSTS_ENABLED:false}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
 
 logging:
   level:
-    org.springframework.security: DEBUG
-    com.authserver: DEBUG
+    org.springframework.security: INFO
+    com.zhouij.authplatform.authserver: INFO

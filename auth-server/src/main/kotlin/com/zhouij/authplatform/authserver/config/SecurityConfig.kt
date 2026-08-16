@@ -2,6 +2,7 @@ package com.zhouij.authplatform.authserver.config
 
 import com.zhouij.authplatform.authserver.auth.IamAuthenticationProvider
 import jakarta.servlet.http.HttpServletResponse
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.core.annotation.Order
@@ -15,12 +16,17 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationCodeRequestAuthenticationException
 import org.springframework.security.web.SecurityFilterChain
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter
 import org.springframework.security.web.savedrequest.HttpSessionRequestCache
 import org.springframework.security.web.util.matcher.MediaTypeRequestMatcher
 
 @Configuration
 @EnableWebSecurity
 class SecurityConfig {
+
+    @Value("\${auth.security.hsts-enabled:false}")
+    private var hstsEnabled: Boolean = false
+
     @Bean
     fun authenticationManager(iamAuthenticationProvider: IamAuthenticationProvider): AuthenticationManager =
         ProviderManager(iamAuthenticationProvider)
@@ -85,6 +91,14 @@ class SecurityConfig {
             }
             .headers { headers ->
                 headers.frameOptions { it.disable() }
+                headers.contentTypeOptions { }
+                headers.referrerPolicy { it.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN) }
+                if (hstsEnabled) {
+                    // Behind TLS only — enabled via AUTH_HSTS_ENABLED in prod.
+                    headers.httpStrictTransportSecurity { hsts ->
+                        hsts.includeSubDomains(true).maxAgeInSeconds(31536000)
+                    }
+                }
             }
 
         return http.build()

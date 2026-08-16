@@ -1,20 +1,12 @@
 
 spring:
   datasource:
-    url: jdbc:postgresql://postgres:5432/iamdb
-    username: iam_user
-    password: iam_pass
+    url: jdbc:postgresql://${IAM_DB_HOST:postgres}:5432/iamdb
+    username: ${IAM_DB_USER:iam_user}
+    password: ${IAM_DB_PASS:iam_pass}
   security:
     oauth2:
       resourceserver:
         jwt:
-          issuer-uri: http://localhost:9081
-          jwk-set-uri: http://auth-server:9081/oauth2/jwks
-
-iam:
-  internal-token: dev-internal-token
-
-email:
-  enabled: false
-  from: no-reply@localhost
-  reset-link-base: http://localhost:3000/reset-password
+          issuer-uri: ${AUTH_ISSUER:http://localhost:9081}
+          jwk-set-uri: ${AUTH_JWKS_URI:http://auth-server:9081/oauth2/jwks}

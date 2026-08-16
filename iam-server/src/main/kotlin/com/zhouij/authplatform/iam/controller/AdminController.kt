@@ -1,16 +1,22 @@
 package com.zhouij.authplatform.iam.controller
 
+import com.zhouij.authplatform.iam.domain.AuditLogEntity
 import com.zhouij.authplatform.iam.service.AdminUserService
+import com.zhouij.authplatform.iam.service.AuditLogService
 import com.zhouij.authplatform.iam.service.UserService
+import jakarta.servlet.http.HttpServletRequest
 import org.springframework.http.ResponseEntity
 import org.springframework.security.access.prepost.PreAuthorize
+import org.springframework.security.core.annotation.AuthenticationPrincipal
+import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.web.bind.annotation.*
 
 @RestController
 @RequestMapping("/api/v1/admin")
 class AdminController(
     private val userService: UserService,
-    private val adminUserService: AdminUserService
+    private val adminUserService: AdminUserService,
+    private val auditLogService: AuditLogService
 ) {
 
     // === Regular User Management ===
@@ -74,19 +80,46 @@ class AdminController(
     @PreAuthorize("hasAnyRole('ADMIN_GROUP_USER_MANAGEMENT', 'ADMIN_GROUP_FULL_ACCESS')")
     fun resetUserPassword(
         @PathVariable email: String,
-        @RequestBody request: AdminResetPasswordRequest
+        @RequestBody request: AdminResetPasswordRequest,
+        @AuthenticationPrincipal jwt: Jwt,
+        httpRequest: HttpServletRequest
     ): ResponseEntity<Map<String, String>> {
-        return if (userService.adminResetPassword(email, request.newPassword)) {
-            ResponseEntity.ok(mapOf("message" to "Password reset successfully"))
-        } else {
-            ResponseEntity.notFound().build()
+        return try {
+            val updated = userService.adminResetPassword(email, request.newPassword)
+            if (updated) {
+                auditLogService.record(
+                    action = "ADMIN_RESET_USER_PASSWORD",
+                    outcome = AuditLogEntity.Outcome.SUCCESS,
+                    actorType = "ADMIN",
+                    actorId = jwt.subject,
+                    target = email,
+                    ipAddress = clientIp(httpRequest)
+                )
+                ResponseEntity.ok(mapOf("message" to "Password reset successfully"))
+            } else {
+                ResponseEntity.notFound().build()
+            }
+        } catch (e: IllegalArgumentException) {
+            ResponseEntity.status(400).body(mapOf("error" to (e.message ?: "Invalid request")))
         }
     }
 
     @PostMapping("/users/{email}/disable")
     @PreAuthorize("hasAnyRole('ADMIN_GROUP_USER_MANAGEMENT', 'ADMIN_GROUP_FULL_ACCESS')")
-    fun disableUser(@PathVariable email: String): ResponseEntity<Map<String, String>> {
+    fun disableUser(
+        @PathVariable email: String,
+        @AuthenticationPrincipal jwt: Jwt,
+        httpRequest: HttpServletRequest
+    ): ResponseEntity<Map<String, String>> {
         return if (userService.disable(email)) {
+            auditLogService.record(
+                action = "USER_DISABLED",
+                outcome = AuditLogEntity.Outcome.SUCCESS,
+                actorType = "ADMIN",
+                actorId = jwt.subject,
+                target = email,
+                ipAddress = clientIp(httpRequest)
+            )
             ResponseEntity.ok(mapOf("message" to "User disabled"))
         } else {
             ResponseEntity.notFound().build()
@@ -95,8 +128,20 @@ class AdminController(
 
     @PostMapping("/users/{email}/enable")
     @PreAuthorize("hasAnyRole('ADMIN_GROUP_USER_MANAGEMENT', 'ADMIN_GROUP_FULL_ACCESS')")
-    fun enableUser(@PathVariable email: String): ResponseEntity<Map<String, String>> {
+    fun enableUser(
+        @PathVariable email: String,
+        @AuthenticationPrincipal jwt: Jwt,
+        httpRequest: HttpServletRequest
+    ): ResponseEntity<Map<String, String>> {
         return if (userService.enable(email)) {
+            auditLogService.record(
+                action = "USER_ENABLED",
+                outcome = AuditLogEntity.Outcome.SUCCESS,
+                actorType = "ADMIN",
+                actorId = jwt.subject,
+                target = email,
+                ipAddress = clientIp(httpRequest)
+            )
             ResponseEntity.ok(mapOf("message" to "User enabled"))
         } else {
             ResponseEntity.notFound().build()
@@ -146,7 +191,11 @@ class AdminController(
 
     @PostMapping("/admins")
     @PreAuthorize("hasAnyRole('ADMIN_GROUP_ADMIN_MANAGEMENT', 'ADMIN_GROUP_FULL_ACCESS')")
-    fun createAdmin(@RequestBody request: CreateAdminRequest): ResponseEntity<Map<String, Any>> {
+    fun createAdmin(
+        @RequestBody request: CreateAdminRequest,
+        @AuthenticationPrincipal jwt: Jwt,
+        httpRequest: HttpServletRequest
+    ): ResponseEntity<Map<String, Any>> {
         return try {
             val admin = adminUserService.createAdmin(
                 email = request.email,
@@ -154,6 +203,15 @@ class AdminController(
                 firstName = request.firstName,
                 lastName = request.lastName,
                 groupNames = request.groupNames
+            )
+            auditLogService.record(
+                action = "ADMIN_CREATED",
+                outcome = AuditLogEntity.Outcome.SUCCESS,
+                actorType = "ADMIN",
+                actorId = jwt.subject,
+                target = admin.email,
+                ipAddress = clientIp(httpRequest),
+                detail = "groups=${admin.groups.map { it.name }}"
             )
             ResponseEntity.status(201).body(
                 mapOf(
@@ -172,11 +230,21 @@ class AdminController(
     @PreAuthorize("hasAnyRole('ADMIN_GROUP_ADMIN_MANAGEMENT', 'ADMIN_GROUP_FULL_ACCESS')")
     fun updateAdmin(
         @PathVariable email: String,
-        @RequestBody request: UpdateAdminRequest
+        @RequestBody request: UpdateAdminRequest,
+        @AuthenticationPrincipal jwt: Jwt,
+        httpRequest: HttpServletRequest
     ): ResponseEntity<Map<String, String>> {
         return try {
             adminUserService.updateAdminDetails(
                 email, request.firstName, request.lastName, request.username, request.groupNames
+            )
+            auditLogService.record(
+                action = "ADMIN_UPDATED",
+                outcome = AuditLogEntity.Outcome.SUCCESS,
+                actorType = "ADMIN",
+                actorId = jwt.subject,
+                target = email,
+                ipAddress = clientIp(httpRequest)
             )
             ResponseEntity.ok(mapOf("message" to "Admin updated"))
         } catch (e: NoSuchElementException) {
@@ -190,19 +258,46 @@ class AdminController(
     @PreAuthorize("hasAnyRole('ADMIN_GROUP_ADMIN_MANAGEMENT', 'ADMIN_GROUP_FULL_ACCESS')")
     fun resetAdminPassword(
         @PathVariable email: String,
-        @RequestBody request: AdminResetPasswordRequest
+        @RequestBody request: AdminResetPasswordRequest,
+        @AuthenticationPrincipal jwt: Jwt,
+        httpRequest: HttpServletRequest
     ): ResponseEntity<Map<String, String>> {
-        return if (adminUserService.adminResetPassword(email, request.newPassword)) {
-            ResponseEntity.ok(mapOf("message" to "Password reset successfully"))
-        } else {
-            ResponseEntity.notFound().build()
+        return try {
+            val updated = adminUserService.adminResetPassword(email, request.newPassword)
+            if (updated) {
+                auditLogService.record(
+                    action = "ADMIN_RESET_ADMIN_PASSWORD",
+                    outcome = AuditLogEntity.Outcome.SUCCESS,
+                    actorType = "ADMIN",
+                    actorId = jwt.subject,
+                    target = email,
+                    ipAddress = clientIp(httpRequest)
+                )
+                ResponseEntity.ok(mapOf("message" to "Password reset successfully"))
+            } else {
+                ResponseEntity.notFound().build()
+            }
+        } catch (e: IllegalArgumentException) {
+            ResponseEntity.status(400).body(mapOf("error" to (e.message ?: "Invalid request")))
         }
     }
 
     @PostMapping("/admins/{email}/disable")
     @PreAuthorize("hasAnyRole('ADMIN_GROUP_ADMIN_MANAGEMENT', 'ADMIN_GROUP_FULL_ACCESS')")
-    fun disableAdmin(@PathVariable email: String): ResponseEntity<Map<String, String>> {
+    fun disableAdmin(
+        @PathVariable email: String,
+        @AuthenticationPrincipal jwt: Jwt,
+        httpRequest: HttpServletRequest
+    ): ResponseEntity<Map<String, String>> {
         return if (adminUserService.disable(email)) {
+            auditLogService.record(
+                action = "ADMIN_DISABLED",
+                outcome = AuditLogEntity.Outcome.SUCCESS,
+                actorType = "ADMIN",
+                actorId = jwt.subject,
+                target = email,
+                ipAddress = clientIp(httpRequest)
+            )
             ResponseEntity.ok(mapOf("message" to "Admin disabled"))
         } else {
             ResponseEntity.notFound().build()
@@ -211,8 +306,20 @@ class AdminController(
 
     @PostMapping("/admins/{email}/enable")
     @PreAuthorize("hasAnyRole('ADMIN_GROUP_ADMIN_MANAGEMENT', 'ADMIN_GROUP_FULL_ACCESS')")
-    fun enableAdmin(@PathVariable email: String): ResponseEntity<Map<String, String>> {
+    fun enableAdmin(
+        @PathVariable email: String,
+        @AuthenticationPrincipal jwt: Jwt,
+        httpRequest: HttpServletRequest
+    ): ResponseEntity<Map<String, String>> {
         return if (adminUserService.enable(email)) {
+            auditLogService.record(
+                action = "ADMIN_ENABLED",
+                outcome = AuditLogEntity.Outcome.SUCCESS,
+                actorType = "ADMIN",
+                actorId = jwt.subject,
+                target = email,
+                ipAddress = clientIp(httpRequest)
+            )
             ResponseEntity.ok(mapOf("message" to "Admin enabled"))
         } else {
             ResponseEntity.notFound().build()
@@ -232,6 +339,11 @@ class AdminController(
             )
         }
         return ResponseEntity.ok(groups)
+    }
+
+    private fun clientIp(request: HttpServletRequest): String? {
+        val forwarded = request.getHeader("X-Forwarded-For") ?: return request.remoteAddr
+        return forwarded.split(',').firstOrNull()?.trim()
     }
 }
 

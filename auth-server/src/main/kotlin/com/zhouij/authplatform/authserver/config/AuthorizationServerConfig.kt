@@ -2,6 +2,7 @@ package com.zhouij.authplatform.authserver.config
 
 import com.zhouij.authplatform.authserver.auth.IamPrincipal
 import com.zhouij.authplatform.authserver.auth.ProfileEnrichingAuthorizationService
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.jdbc.core.JdbcTemplate
@@ -11,18 +12,42 @@ import org.springframework.security.oauth2.server.authorization.JdbcOAuth2Author
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationConsentService
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService
 import org.springframework.security.oauth2.server.authorization.client.JdbcRegisteredClientRepository
+import org.springframework.security.oauth2.server.authorization.client.RegisteredClient
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository
 import org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings
+import org.springframework.security.oauth2.server.authorization.settings.TokenSettings
 import org.springframework.security.oauth2.server.authorization.token.JwtEncodingContext
 import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenCustomizer
+import java.time.Duration
+import java.util.UUID
 import javax.sql.DataSource
 
 @Configuration
 class AuthorizationServerConfig {
 
+    @Value("\${auth.issuer:http://localhost:9081}")
+    private lateinit var issuer: String
+
+    @Value("\${auth.token.audience:resource-server}")
+    private lateinit var audience: String
+
+    @Value("\${auth.token.access-ttl:15m}")
+    private lateinit var accessTokenTtl: Duration
+
+    @Value("\${auth.token.refresh-ttl:12h}")
+    private lateinit var refreshTokenTtl: Duration
+
     @Bean
     fun registeredClientRepository(dataSource: DataSource): RegisteredClientRepository {
-        return JdbcRegisteredClientRepository(JdbcTemplate(dataSource))
+        // The decorator applies the operator-controlled token TTLs from
+        // configuration on top of the DB-seeded clients, without mutating the
+        // stored rows. Short access-token TTLs keep the revocation window
+        // small (see /internal/auth/revoke-user/{id}).
+        return TtlEnforcingRegisteredClientRepository(
+            JdbcRegisteredClientRepository(JdbcTemplate(dataSource)),
+            accessTokenTtl = accessTokenTtl,
+            refreshTokenTtl = refreshTokenTtl
+        )
     }
 
     @Bean
@@ -45,14 +70,24 @@ class AuthorizationServerConfig {
     @Bean
     fun authorizationServerSettings(): AuthorizationServerSettings {
         return AuthorizationServerSettings.builder()
-            .issuer("http://localhost:9081")
+            .issuer(issuer)
             .build()
     }
 
     @Bean
     fun tokenCustomizer(): OAuth2TokenCustomizer<JwtEncodingContext> {
         return OAuth2TokenCustomizer { context ->
-            context.claims.claims { claims ->
+            val claimsBuilder = context.claims
+
+            // Stable token id so access tokens can be denylisted on revocation
+            // even when the authorization server itself doesn't add one.
+            claimsBuilder.claims { claims ->
+                if (!claims.containsKey("jti")) {
+                    claims["jti"] = UUID.randomUUID().toString()
+                }
+            }
+
+            claimsBuilder.claims { claims ->
                 claims["client_id"] = context.registeredClient.clientId
             }
 
@@ -84,7 +119,7 @@ class AuthorizationServerConfig {
                     ) ?: emptyMap())
                 }
 
-                context.claims.claims { claims ->
+                claimsBuilder.claims { claims ->
                     claims["email"] = profile["email"]
                     claims["preferred_username"] = profile["preferred_username"]
                     claims["given_name"] = profile["given_name"]
@@ -98,9 +133,37 @@ class AuthorizationServerConfig {
                 }
             }
 
-            context.claims.claims { claims ->
-                claims["aud"] = listOf("resource-server")
+            claimsBuilder.claims { claims ->
+                val aud = audience.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+                claims["aud"] = aud
             }
         }
     }
+}
+
+/**
+ * Applies operator-configured token TTLs to every registered client at read
+ * time. The DB rows stay untouched, so this is safe to toggle without
+ * migrations and applies uniformly to all clients.
+ */
+class TtlEnforcingRegisteredClientRepository(
+    private val delegate: RegisteredClientRepository,
+    private val accessTokenTtl: Duration,
+    private val refreshTokenTtl: Duration
+) : RegisteredClientRepository by delegate {
+
+    private fun applyTokenSettings(client: RegisteredClient): RegisteredClient {
+        val settings = TokenSettings.builder()
+            .accessTokenTimeToLive(accessTokenTtl)
+            .refreshTokenTimeToLive(refreshTokenTtl)
+            .reuseRefreshTokens(false)
+            .build()
+        return RegisteredClient.from(client).tokenSettings(settings).build()
+    }
+
+    override fun findById(id: String): RegisteredClient? =
+        delegate.findById(id)?.let(::applyTokenSettings)
+
+    override fun findByClientId(clientId: String): RegisteredClient? =
+        delegate.findByClientId(clientId)?.let(::applyTokenSettings)
 }

@@ -16,6 +16,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-mail")
+    implementation("io.micrometer:micrometer-registry-prometheus")
     implementation("org.bouncycastle:bcprov-jdk18on:1.81")
 
     implementation("org.springframework.boot:spring-boot-flyway")

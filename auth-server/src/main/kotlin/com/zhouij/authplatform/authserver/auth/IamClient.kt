@@ -61,6 +61,9 @@ class IamClient(
                 .onStatus(
                     { it == HttpStatus.UNAUTHORIZED }
                 ) { _ -> Mono.empty() }
+                .onStatus(
+                    { it == HttpStatus.TOO_MANY_REQUESTS }
+                ) { _ -> Mono.error(IamAccountLockedException()) }
                 .bodyToMono(mapTypeRef)
                 .block(Duration.ofSeconds(5))
 
@@ -71,6 +74,10 @@ class IamClient(
                 onSuccess()
                 ValidationResult(success = false, error = "Invalid credentials")
             }
+        } catch (e: IamAccountLockedException) {
+            onSuccess()
+            logger.warn("IAM rejected login for {}: account temporarily locked", email)
+            ValidationResult(success = false, error = "Account temporarily locked — too many failed attempts")
         } catch (e: WebClientResponseException) {
             if (e.statusCode.is5xxServerError) onFailure() else onSuccess()
             logger.warn("IAM validation HTTP error: {} {}", e.statusCode, e.message)
@@ -105,3 +112,6 @@ class IamClient(
         }
     }
 }
+
+/** Thrown when IAM rejects a credential check because the account is locked out (HTTP 429). */
+class IamAccountLockedException : RuntimeException("Account temporarily locked")

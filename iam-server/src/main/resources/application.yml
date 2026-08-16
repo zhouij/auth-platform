@@ -3,9 +3,11 @@ spring:
   application:
     name: iam-server
   datasource:
-    url: jdbc:postgresql://localhost:5432/iamdb
-    username: iam_user
-    password: iam_pass
+    url: jdbc:postgresql://${IAM_DB_HOST:localhost}:5432/iamdb
+    username: ${IAM_DB_USER:iam_user}
+    password: ${IAM_DB_PASS:iam_pass}
+    hikari:
+      maximum-pool-size: 10
   flyway:
     enabled: true
     default-schema: iam
@@ -22,17 +24,54 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          issuer-uri: http://localhost:9081
-          jwk-set-uri: http://localhost:9081/oauth2/jwks
+          issuer-uri: ${AUTH_ISSUER:http://localhost:9081}
+          jwk-set-uri: ${AUTH_JWKS_URI:http://localhost:9081/oauth2/jwks}
+  mail:
+    host: ${SMTP_HOST:}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    # No eager connection test: local dev has no SMTP server, and a real
+    # deployment verifies its SMTP settings through actual sends.
+    test-connection: false
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
 
 server:
   port: 9083
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  health:
+    # No SMTP in local dev → the mail indicator would drag health DOWN.
+    # Enable it in deployments with a real SMTP server.
+    mail:
+      enabled: ${SMTP_HEALTH_ENABLED:false}
+
 iam:
-  internal-token: dev-internal-token
-  signing-key-path:
+  internal-token: ${IAM_INTERNAL_TOKEN:dev-internal-token}
+  signing:
+    key-path: ${IAM_SIGNING_KEY_PATH:}
+    previous-key-paths: ${IAM_SIGNING_PREVIOUS_KEY_PATHS:}
+  login:
+    max-attempts: ${IAM_LOGIN_MAX_ATTEMPTS:5}
+    lockout-minutes: ${IAM_LOGIN_LOCKOUT_MINUTES:15}
+    window-minutes: ${IAM_LOGIN_WINDOW_MINUTES:15}
+  password:
+    history-size: ${IAM_PASSWORD_HISTORY_SIZE:5}
 
 email:
-  enabled: false
-  from: no-reply@localhost
-  reset-link-base: http://localhost:3000/reset-password
+  enabled: ${EMAIL_ENABLED:false}
+  from: ${EMAIL_FROM:no-reply@localhost}
+  reset-link-base: ${EMAIL_RESET_LINK_BASE:http://localhost:3000/reset-password}
+  verification-link-base: ${EMAIL_VERIFICATION_LINK_BASE:http://localhost:3000/verify-email}
+  verification-required: ${EMAIL_VERIFICATION_REQUIRED:false}
