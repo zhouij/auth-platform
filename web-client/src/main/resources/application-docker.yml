@@ -1,0 +1,2 @@
+gateway:
+  base-url: ${GATEWAY_BASE_URL:http://gateway:9080}

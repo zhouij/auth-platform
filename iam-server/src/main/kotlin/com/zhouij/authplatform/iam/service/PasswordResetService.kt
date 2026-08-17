@@ -6,19 +6,13 @@ import com.zhouij.authplatform.iam.repository.AdminPasswordResetTokenRepository
 import com.zhouij.authplatform.iam.repository.AdminUserRepository
 import com.zhouij.authplatform.iam.repository.UserPasswordResetTokenRepository
 import com.zhouij.authplatform.iam.repository.UserRepository
-import io.jsonwebtoken.Jwts
-import io.jsonwebtoken.security.Keys
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-import java.security.KeyPair
-import java.security.KeyPairGenerator
 import java.time.Instant
 import java.time.temporal.ChronoUnit
-import java.util.Date
 import java.util.UUID
-import javax.crypto.SecretKey
 
 @Service
 class PasswordResetService(
@@ -26,31 +20,19 @@ class PasswordResetService(
     private val adminUserRepository: AdminUserRepository,
     private val userPasswordResetTokenRepository: UserPasswordResetTokenRepository,
     private val adminPasswordResetTokenRepository: AdminPasswordResetTokenRepository,
-    private val passwordService: PasswordService
+    private val passwordService: PasswordService,
+    private val passwordHistoryService: PasswordHistoryService,
+    private val iamTokenService: IamTokenService,
+    private val emailService: EmailService
 ) {
     private val logger = LoggerFactory.getLogger(PasswordResetService::class.java)
 
     @Value("\${email.reset-link-base:http://localhost:3000/reset-password}")
     private lateinit var resetLinkBase: String
 
-    @Value("\${email.enabled:false}")
-    private var emailEnabled: Boolean = false
-
-    // Ephemeral signing key for reset tokens — in production, load from a persisted key
-    private val signingKey: SecretKey by lazy {
-        val gen = KeyPairGenerator.getInstance("EC")
-        gen.initialize(256)
-        val pair = gen.generateKeyPair()
-        // Use the private key bytes for HMAC (simplified; prod should use persisted RSA/EC key)
-        Keys.hmacShaKeyFor(pair.private.encoded.copyOf(32))
+    companion object {
+        const val RESET_TOKEN_TTL_MINUTES = 15L
     }
-
-    data class ResetTokenClaims(
-        val sub: String,
-        val userType: String,
-        val jti: String,
-        val purpose: String = "password-reset"
-    )
 
     @Transactional
     fun requestReset(email: String, userType: String) {
@@ -58,35 +40,46 @@ class PasswordResetService(
             "USER" -> {
                 val user = userRepository.findByEmailIgnoreCase(email).orElse(null) ?: return
                 if (!user.enabled) return
-                val token = createResetToken(user.id.toString(), "USER")
+                val (signedToken, claims) = iamTokenService.createToken(
+                    sub = user.id.toString(),
+                    userType = "USER",
+                    purpose = "password-reset",
+                    ttlMinutes = RESET_TOKEN_TTL_MINUTES
+                )
                 userPasswordResetTokenRepository.save(
                     UserPasswordResetTokenEntity(
                         userId = user.id!!,
-                        jti = token.jti,
-                        expiresAt = Instant.now().plus(15, ChronoUnit.MINUTES)
+                        jti = claims.jti,
+                        expiresAt = Instant.now().plus(RESET_TOKEN_TTL_MINUTES, ChronoUnit.MINUTES)
                     )
                 )
-                sendResetEmail(email, token)
+                emailService.sendPasswordReset(email, "USER", "$resetLinkBase?token=$signedToken")
             }
             "ADMIN" -> {
                 val admin = adminUserRepository.findByEmailIgnoreCase(email).orElse(null) ?: return
                 if (!admin.enabled) return
-                val token = createResetToken(admin.id.toString(), "ADMIN")
+                val (signedToken, claims) = iamTokenService.createToken(
+                    sub = admin.id.toString(),
+                    userType = "ADMIN",
+                    purpose = "password-reset",
+                    ttlMinutes = RESET_TOKEN_TTL_MINUTES
+                )
                 adminPasswordResetTokenRepository.save(
                     AdminPasswordResetTokenEntity(
                         adminUserId = admin.id!!,
-                        jti = token.jti,
-                        expiresAt = Instant.now().plus(15, ChronoUnit.MINUTES)
+                        jti = claims.jti,
+                        expiresAt = Instant.now().plus(RESET_TOKEN_TTL_MINUTES, ChronoUnit.MINUTES)
                     )
                 )
-                sendResetEmail(email, token)
+                emailService.sendPasswordReset(email, "ADMIN", "$resetLinkBase?token=$signedToken")
             }
         }
     }
 
     @Transactional
     fun completeReset(resetToken: String, newPassword: String): ResetResult {
-        val claims = verifyResetToken(resetToken) ?: return ResetResult.INVALID_TOKEN
+        val claims = iamTokenService.verifyToken(resetToken, "password-reset")
+            ?: return ResetResult.INVALID_TOKEN
         val userId = UUID.fromString(claims.sub)
 
         return when (claims.userType.uppercase()) {
@@ -99,10 +92,14 @@ class PasswordResetService(
                 val user = userRepository.findById(userId).orElse(null) ?: return ResetResult.INVALID_TOKEN
                 if (!user.enabled) return ResetResult.INVALID_TOKEN
                 if (!passwordService.validatePasswordStrength(newPassword)) return ResetResult.WEAK_PASSWORD
+                if (passwordHistoryService.wasUsedRecently(userId = userId, adminUserId = null, newPassword)) {
+                    return ResetResult.PASSWORD_REUSED
+                }
                 user.passwordHash = passwordService.hashUser(newPassword)
                 user.credentialsChangedAt = Instant.now()
                 user.updatedAt = Instant.now()
                 userRepository.save(user)
+                passwordHistoryService.record(userId = userId, adminUserId = null, passwordHash = user.passwordHash)
 
                 tokenEntity.used = true
                 userPasswordResetTokenRepository.save(tokenEntity)
@@ -117,10 +114,14 @@ class PasswordResetService(
                 val admin = adminUserRepository.findById(userId).orElse(null) ?: return ResetResult.INVALID_TOKEN
                 if (!admin.enabled) return ResetResult.INVALID_TOKEN
                 if (!passwordService.validateAdminPasswordStrength(newPassword)) return ResetResult.WEAK_PASSWORD
+                if (passwordHistoryService.wasUsedRecently(userId = null, adminUserId = userId, newPassword)) {
+                    return ResetResult.PASSWORD_REUSED
+                }
                 admin.passwordHash = passwordService.hashAdmin(newPassword)
                 admin.credentialsChangedAt = Instant.now()
                 admin.updatedAt = Instant.now()
                 adminUserRepository.save(admin)
+                passwordHistoryService.record(userId = null, adminUserId = userId, passwordHash = admin.passwordHash)
 
                 tokenEntity.used = true
                 adminPasswordResetTokenRepository.save(tokenEntity)
@@ -130,60 +131,7 @@ class PasswordResetService(
         }
     }
 
-    private fun createResetToken(sub: String, userType: String): ResetTokenClaims {
-        val jti = UUID.randomUUID().toString()
-        return ResetTokenClaims(sub = sub, userType = userType, jti = jti)
-    }
-
-    private fun verifyResetToken(token: String): ResetTokenClaims? {
-        return try {
-            val claims = Jwts.parser()
-                .verifyWith(signingKey)
-                .build()
-                .parseSignedClaims(token)
-                .payload
-
-            val purpose = claims["purpose"] as? String ?: return null
-            if (purpose != "password-reset") return null
-
-            val exp = claims.expiration?.toInstant() ?: return null
-            if (exp.isBefore(Instant.now())) return null
-
-            ResetTokenClaims(
-                sub = claims.subject,
-                userType = claims["user_type"] as? String ?: return null,
-                jti = claims["jti"] as? String ?: return null,
-                purpose = purpose
-            )
-        } catch (e: Exception) {
-            logger.debug("Reset token verification failed: {}", e.message)
-            null
-        }
-    }
-
-    private fun sendResetEmail(email: String, claims: ResetTokenClaims) {
-        val signedToken = generateSignedToken(claims)
-        val resetLink = "$resetLinkBase?token=$signedToken"
-        if (emailEnabled) {
-            logger.info("Password reset email to {} ({}) — link: {}", email, claims.userType, resetLink)
-        } else {
-            logger.info("PASSWORD RESET [{}]: {}", claims.userType, resetLink)
-        }
-    }
-
-    fun generateSignedToken(claims: ResetTokenClaims): String {
-        return Jwts.builder()
-            .subject(claims.sub)
-            .claim("user_type", claims.userType)
-            .claim("jti", claims.jti)
-            .claim("purpose", claims.purpose)
-            .issuedAt(Date())
-            .expiration(Date.from(Instant.now().plus(15, ChronoUnit.MINUTES)))
-            .signWith(signingKey)
-            .compact()
-    }
-
     enum class ResetResult {
-        SUCCESS, INVALID_TOKEN, TOKEN_USED, TOKEN_EXPIRED, WEAK_PASSWORD
+        SUCCESS, INVALID_TOKEN, TOKEN_USED, TOKEN_EXPIRED, WEAK_PASSWORD, PASSWORD_REUSED
     }
 }

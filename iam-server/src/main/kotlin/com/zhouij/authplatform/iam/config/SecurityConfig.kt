@@ -30,7 +30,8 @@ class SecurityConfig {
             }
             .oauth2ResourceServer { oauth2 ->
                 oauth2.jwt { jwt ->
-                    jwt.jwkSetUri("http://localhost:9081/oauth2/jwks")
+                    // issuer-uri / jwk-set-uri come from application.yml
+                    // (spring.security.oauth2.resourceserver.jwt.*)
                     jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())
                 }
             }

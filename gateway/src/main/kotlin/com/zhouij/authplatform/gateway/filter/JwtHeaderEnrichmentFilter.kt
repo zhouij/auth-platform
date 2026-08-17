@@ -50,6 +50,12 @@ class JwtHeaderEnrichmentFilter(
                             headers.remove("X-Authenticated-Scopes")
                             headers.remove("X-Authenticated-Roles")
                             headers.remove("X-Authenticated-User-Type")
+                            // Forged forwarding headers must not reach the
+                            // downstream audit trail — replace them with the
+                            // address the gateway actually saw.
+                            headers.remove("X-Forwarded-For")
+                            headers.remove("X-Forwarded-Host")
+                            headers.remove("X-Forwarded-Proto")
                         }
                         .header(HttpHeaders.AUTHORIZATION, "Bearer ${jwt.tokenValue}")
                         .header("X-Authenticated-Subject", jwt.subject ?: "unknown")
@@ -60,6 +66,10 @@ class JwtHeaderEnrichmentFilter(
                             (jwt.claims["roles"] as? List<*>)?.joinToString(",") ?: ""
                         )
                         .header("X-Authenticated-User-Type", jwt.claims["user_type"]?.toString() ?: "")
+                        .header(
+                            "X-Forwarded-For",
+                            exchange.request.remoteAddress?.address?.hostAddress ?: "unknown"
+                        )
                         .build()
 
                     chain.filter(exchange.mutate().request(sanitizedRequest).build())

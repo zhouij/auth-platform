@@ -23,3 +23,9 @@ Thumbs.db
 # Gradle user home redirected into workspace (sandboxed builds)
 .gradle-home/
 .kotlin/
+
+# stray jars at repo root
+/*.jar
+
+# local service run artifacts (signing keys, logs)
+.run-keys/

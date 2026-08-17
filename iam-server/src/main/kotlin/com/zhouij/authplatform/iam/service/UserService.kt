@@ -12,7 +12,8 @@ import java.util.UUID
 class UserService(
     private val userRepository: UserRepository,
     private val passwordService: PasswordService,
-    private val userPasswordResetTokenRepository: UserPasswordResetTokenRepository
+    private val userPasswordResetTokenRepository: UserPasswordResetTokenRepository,
+    private val passwordHistoryService: PasswordHistoryService
 ) {
 
     @Transactional
@@ -27,7 +28,9 @@ class UserService(
             firstName = firstName,
             lastName = lastName
         )
-        return userRepository.save(user)
+        val saved = userRepository.save(user)
+        passwordHistoryService.record(userId = saved.id, adminUserId = null, passwordHash = saved.passwordHash)
+        return saved
     }
 
     fun validateCredentials(identifier: String, password: String): UserEntity? {
@@ -59,11 +62,14 @@ class UserService(
             return ChangePasswordResult.WRONG_PASSWORD
         if (!passwordService.validatePasswordStrength(newPassword))
             return ChangePasswordResult.WEAK_PASSWORD
+        if (passwordHistoryService.wasUsedRecently(userId = userId, adminUserId = null, newPassword))
+            return ChangePasswordResult.PASSWORD_REUSED
 
         user.passwordHash = passwordService.hashUser(newPassword)
         user.credentialsChangedAt = Instant.now()
         user.updatedAt = Instant.now()
         userRepository.save(user)
+        passwordHistoryService.record(userId = userId, adminUserId = null, passwordHash = user.passwordHash)
         return ChangePasswordResult.SUCCESS
     }
 
@@ -106,10 +112,14 @@ class UserService(
     fun adminResetPassword(email: String, newPassword: String): Boolean {
         val user = findByEmail(email) ?: return false
         require(passwordService.validatePasswordStrength(newPassword)) { "Password must be at least 8 characters" }
+        if (passwordHistoryService.wasUsedRecently(userId = user.id, adminUserId = null, newPassword)) {
+            throw IllegalArgumentException("Password was used recently")
+        }
         user.passwordHash = passwordService.hashUser(newPassword)
         user.credentialsChangedAt = Instant.now()
         user.updatedAt = Instant.now()
         userRepository.save(user)
+        passwordHistoryService.record(userId = user.id, adminUserId = null, passwordHash = user.passwordHash)
         return true
     }
 
@@ -127,6 +137,6 @@ class UserService(
     }
 
     enum class ChangePasswordResult {
-        SUCCESS, USER_NOT_FOUND, WRONG_PASSWORD, WEAK_PASSWORD
+        SUCCESS, USER_NOT_FOUND, WRONG_PASSWORD, WEAK_PASSWORD, PASSWORD_REUSED
     }
 }

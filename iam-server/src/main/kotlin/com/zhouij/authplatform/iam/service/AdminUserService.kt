@@ -14,7 +14,8 @@ class AdminUserService(
     private val adminUserRepository: AdminUserRepository,
     private val adminGroupRepository: AdminGroupRepository,
     private val passwordService: PasswordService,
-    private val adminPasswordResetTokenRepository: AdminPasswordResetTokenRepository
+    private val adminPasswordResetTokenRepository: AdminPasswordResetTokenRepository,
+    private val passwordHistoryService: PasswordHistoryService
 ) {
 
     @Transactional
@@ -39,7 +40,9 @@ class AdminUserService(
             lastName = lastName,
             groups = groups
         )
-        return adminUserRepository.save(admin)
+        val saved = adminUserRepository.save(admin)
+        passwordHistoryService.record(userId = null, adminUserId = saved.id, passwordHash = saved.passwordHash)
+        return saved
     }
 
     fun validateCredentials(identifier: String, password: String): AdminUserEntity? {
@@ -71,11 +74,14 @@ class AdminUserService(
             return UserService.ChangePasswordResult.WRONG_PASSWORD
         if (!passwordService.validateAdminPasswordStrength(newPassword))
             return UserService.ChangePasswordResult.WEAK_PASSWORD
+        if (passwordHistoryService.wasUsedRecently(userId = null, adminUserId = userId, newPassword))
+            return UserService.ChangePasswordResult.PASSWORD_REUSED
 
         admin.passwordHash = passwordService.hashAdmin(newPassword)
         admin.credentialsChangedAt = Instant.now()
         admin.updatedAt = Instant.now()
         adminUserRepository.save(admin)
+        passwordHistoryService.record(userId = null, adminUserId = userId, passwordHash = admin.passwordHash)
         return UserService.ChangePasswordResult.SUCCESS
     }
 
@@ -118,10 +124,14 @@ class AdminUserService(
     fun adminResetPassword(email: String, newPassword: String): Boolean {
         val admin = findByEmail(email) ?: return false
         require(passwordService.validateAdminPasswordStrength(newPassword)) { "Admin password must be at least 14 characters" }
+        if (passwordHistoryService.wasUsedRecently(userId = null, adminUserId = admin.id, newPassword)) {
+            throw IllegalArgumentException("Password was used recently")
+        }
         admin.passwordHash = passwordService.hashAdmin(newPassword)
         admin.credentialsChangedAt = Instant.now()
         admin.updatedAt = Instant.now()
         adminUserRepository.save(admin)
+        passwordHistoryService.record(userId = null, adminUserId = admin.id, passwordHash = admin.passwordHash)
         return true
     }
 

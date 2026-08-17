@@ -1,17 +1,18 @@
 
 spring:
   datasource:
-    url: jdbc:postgresql://postgres:5432/authdb
-    username: auth_user
-    password: auth_pass
+    url: jdbc:postgresql://${AUTH_DB_HOST:postgres}:5432/authdb
+    username: ${AUTH_DB_USER:auth_user}
+    password: ${AUTH_DB_PASS:auth_pass}
 
 iam:
-  base-url: http://iam-server:9083
-  internal-token: dev-internal-token
+  base-url: ${IAM_BASE_URL:http://iam-server:9083}
+  internal-token: ${IAM_INTERNAL_TOKEN:dev-internal-token}
 
 auth:
+  issuer: ${AUTH_ISSUER:http://localhost:9081}
   signing:
-    key-path: /run/secrets/auth-signing-key.jwk
+    key-path: ${AUTH_SIGNING_KEY_PATH:/secrets/auth-signing.jwk}
 
 logging:
   level:

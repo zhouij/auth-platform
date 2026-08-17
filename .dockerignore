@@ -1,0 +1,24 @@
+# Build context exclusions for Docker builds
+.git
+.gitignore
+.hermes
+.tools
+.claude
+docs
+**/build
+.gradle
+.gradle-home
+.kotlin
+*.jar
+*.log
+.env
+.env.*
+!.env.example
+docker-compose*.yml
+Dockerfile*
+.dockerignore
+.github
+.idea
+.vscode
+*.iml
+smoke-test.sh

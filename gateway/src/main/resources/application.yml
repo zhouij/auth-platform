@@ -8,11 +8,11 @@ spring:
         webflux:
           routes:
             - id: resource-server
-              uri: http://localhost:9082
+              uri: ${RESOURCE_SERVER_URL:http://localhost:9082}
               predicates:
                 - Path=/api/v1/**
             - id: iam-server
-              uri: http://localhost:9083
+              uri: ${IAM_SERVER_URL:http://localhost:9083}
               predicates:
                 - Path=/iam/v1/**
               filters:
@@ -27,17 +27,45 @@ spring:
 server:
   port: 9080
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+
 gateway:
   public-paths:
     - /actuator/health
     - /actuator/health/liveness
     - /actuator/health/readiness
+    - /actuator/prometheus
     - /iam/v1/auth/register
     - /iam/v1/auth/login
     - /iam/v1/auth/forgot-password
     - /iam/v1/auth/reset-password
+    - /iam/v1/auth/verify-email
     - /api/v1/public/**
+  hsts-enabled: ${GATEWAY_HSTS_ENABLED:false}
+  cors:
+    allowed-origins: ${GATEWAY_CORS_ALLOWED_ORIGINS:}
+  rate-limit:
+    enabled: ${GATEWAY_RATE_LIMIT_ENABLED:true}
+    requests-per-minute: ${GATEWAY_RATE_LIMIT_PER_MINUTE:30}
+    paths:
+      - /iam/v1/auth/login
+      - /iam/v1/auth/register
+      - /iam/v1/auth/forgot-password
+  revocation-check:
+    enabled: ${GATEWAY_REVOCATION_CHECK_ENABLED:false}
+    auth-server-base-url: ${AUTH_SERVER_URL:http://localhost:9081}
+    internal-token: ${IAM_INTERNAL_TOKEN:dev-internal-token}
+    cache-seconds: 60
 
 logging:
   level:
-    org.springframework.cloud.gateway: DEBUG
+    org.springframework.cloud.gateway: INFO
