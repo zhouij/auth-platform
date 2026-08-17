@@ -27,6 +27,9 @@ class InternalAuthController(
     @Value("\${iam.internal-token:dev-internal-token}")
     private lateinit var internalToken: String
 
+    @Value("\${email.verification-required:false}")
+    private var verificationRequired: Boolean = false
+
     @PostMapping("/auth/validate")
     fun validateCredentials(
         @RequestHeader("X-Internal-Token") token: String,
@@ -96,6 +99,20 @@ class InternalAuthController(
             else -> {
                 val user = userService.validateCredentials(request.email, request.password)
                 if (user != null) {
+                    if (verificationRequired && !user.emailVerified) {
+                        auditLogService.record(
+                            action = "LOGIN",
+                            outcome = AuditLogEntity.Outcome.FAILURE,
+                            actorType = "USER",
+                            actorId = user.id.toString(),
+                            target = user.email,
+                            ipAddress = clientIp(httpRequest),
+                            detail = "Email not verified (internal validation)"
+                        )
+                        return ResponseEntity.status(403).body(
+                            mapOf("error" to "Email address not verified")
+                        )
+                    }
                     loginAttemptService.recordSuccess(normalizedEmail)
                     userService.recordLogin(user)
                     auditLogService.record(

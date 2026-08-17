@@ -83,7 +83,6 @@ class GatewaySecurityProperties {
         var enabled: Boolean = true
         var requestsPerMinute: Int = 30
         var paths: List<String> = listOf(
-            "/iam/v1/auth/login",
             "/iam/v1/auth/register",
             "/iam/v1/auth/forgot-password"
         )

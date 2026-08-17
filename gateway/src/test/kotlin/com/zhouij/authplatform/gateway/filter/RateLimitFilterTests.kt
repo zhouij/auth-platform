@@ -17,7 +17,7 @@ class RateLimitFilterTests {
     private val properties = GatewaySecurityProperties().apply {
         rateLimit.enabled = true
         rateLimit.requestsPerMinute = 2
-        rateLimit.paths = listOf("/iam/v1/auth/login")
+        rateLimit.paths = listOf("/iam/v1/auth/register")
     }
     private val chain = mock(GatewayFilterChain::class.java)
     private val filter = RateLimitFilter(properties)
@@ -30,7 +30,7 @@ class RateLimitFilterTests {
 
     private fun exchange(ip: String = "203.0.113.7") =
         MockServerWebExchange.from(
-            MockServerHttpRequest.post("/iam/v1/auth/login")
+            MockServerHttpRequest.post("/iam/v1/auth/register")
                 .remoteAddress(InetSocketAddress(ip, 12345))
         )
 

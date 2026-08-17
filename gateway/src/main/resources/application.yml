@@ -45,7 +45,6 @@ gateway:
     - /actuator/health/readiness
     - /actuator/prometheus
     - /iam/v1/auth/register
-    - /iam/v1/auth/login
     - /iam/v1/auth/forgot-password
     - /iam/v1/auth/reset-password
     - /iam/v1/auth/verify-email
@@ -57,7 +56,6 @@ gateway:
     enabled: ${GATEWAY_RATE_LIMIT_ENABLED:true}
     requests-per-minute: ${GATEWAY_RATE_LIMIT_PER_MINUTE:30}
     paths:
-      - /iam/v1/auth/login
       - /iam/v1/auth/register
       - /iam/v1/auth/forgot-password
   revocation-check:

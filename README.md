@@ -1,13 +1,14 @@
 # Auth Platform
 
-A Kotlin/Spring Boot authentication platform with four services:
+A Kotlin/Spring Boot authentication platform with five services:
 
 - **iam-server**: user identity, admin users, password management, and internal credential validation.
 - **auth-server**: OAuth2/OIDC authorization server that issues JWTs and delegates password checks to IAM.
 - **gateway**: Spring Cloud Gateway reverse proxy that validates JWTs and forwards requests.
 - **resource-server**: sample protected API that demonstrates scopes, roles, and owner-based access checks.
+- **web-client**: browser BFF that runs the authorization-code flow (`spring oauth2Login`).
 
-The repository is intended for local development with the services running from Gradle and PostgreSQL running from Docker Compose.
+The full stack (all five services + PostgreSQL) runs from Docker Compose; the services can also be started from Gradle for local development.
 
 ## Contents
 
@@ -82,11 +83,18 @@ Traffic normally enters through the gateway. The auth server is contacted direct
 
 Prerequisites:
 
-- JDK 21
+- JDK 21 (for Gradle runs; Docker-only runs need just Docker)
 - Docker Desktop or Docker Engine with Compose
 - `jq`, only if you want to run `smoke-test.sh`
 
-Start the shared database:
+**Option A — everything in Docker:**
+
+```bash
+docker compose up --build -d
+./smoke-test.sh          # after all services report healthy
+```
+
+**Option B — Postgres in Docker, services from Gradle:**
 
 ```bash
 docker compose up -d postgres
@@ -114,9 +122,22 @@ curl http://localhost:9080/actuator/health
 
 ## Running Services
 
-### PostgreSQL
+### Full stack via Docker Compose
 
-`docker-compose.yml` intentionally contains only infrastructure needed by local services. It does **not** run the application services.
+`docker-compose.yml` defines Postgres plus all five application services with
+healthchecks, startup ordering, and named volumes. Signing keys are generated
+on first boot into the `iam-secrets` / `auth-secrets` volumes and survive
+restarts, so issued tokens stay valid.
+
+```bash
+docker compose up --build -d     # build + start everything
+docker compose ps                # watch healthchecks converge
+docker compose logs -f gateway   # per-service logs
+docker compose down              # stop (volumes preserved)
+docker compose down -v           # stop and wipe databases AND signing keys
+```
+
+Only Postgres:
 
 ```bash
 docker compose up -d postgres
@@ -124,14 +145,14 @@ docker compose logs -f postgres
 docker compose down
 ```
 
-To reset all local databases:
+To reset all local databases (keeps the services running from Gradle):
 
 ```bash
 docker compose down -v
 docker compose up -d postgres
 ```
 
-The first container startup runs [docker/postgres/init/01-create-databases.sql](docker/postgres/init/01-create-databases.sql), which creates:
+The first Postgres startup runs [docker/postgres/init/01-create-databases.sql](docker/postgres/init/01-create-databases.sql), which creates:
 
 - `auth_user` / `authdb`
 - `iam_user` / `iamdb`
@@ -172,54 +193,69 @@ resource-server/src/main/resources/db/migration/
 
 ## Configuration
 
+All services are configured through environment variables with development
+defaults baked into `application.yml`. Copy [.env.example](.env.example) to
+`.env` and adjust it for your deployment (`docker compose` picks up `.env`
+automatically).
+
 ### Auth Server
 
-Important defaults in [auth-server/src/main/resources/application.yml](auth-server/src/main/resources/application.yml):
+Important settings in [auth-server/src/main/resources/application.yml](auth-server/src/main/resources/application.yml):
 
-| Property | Default |
-|---|---|
-| `spring.datasource.url` | `jdbc:postgresql://localhost:5432/authdb` |
-| `spring.datasource.username` | `${AUTH_DB_USER:auth_user}` |
-| `spring.datasource.password` | `${AUTH_DB_PASS:auth_pass}` |
-| `iam.base-url` | `${IAM_BASE_URL:http://localhost:9083}` |
-| `iam.internal-token` | `${IAM_INTERNAL_TOKEN:dev-internal-token}` |
-| `auth.signing.key-path` | `${AUTH_SIGNING_KEY_PATH:}` |
-
-If `auth.signing.key-path` is empty, the app uses its local key configuration. For deployment, provide a persistent signing key.
+| Env var | Default | Purpose |
+|---|---|---|
+| `AUTH_DB_USER` / `AUTH_DB_PASS` | `auth_user` / `auth_pass` | Postgres credentials |
+| `IAM_BASE_URL` | `http://localhost:9083` | IAM internal validation URL |
+| `IAM_INTERNAL_TOKEN` | `dev-internal-token` | Shared internal-service secret (must match IAM) |
+| `AUTH_ISSUER` | `http://localhost:9081` | `iss` claim + discovery document |
+| `AUTH_SIGNING_KEY_PATH` | empty | Persisted JWKSet file; empty = ephemeral (dev only) |
+| `AUTH_TOKEN_AUDIENCE` | `resource-server` | Token `aud` (comma-separated list allowed) |
+| `AUTH_ACCESS_TOKEN_TTL` | `15m` | Access-token lifetime (applied to every client) |
+| `AUTH_REFRESH_TOKEN_TTL` | `12h` | Refresh-token lifetime (applied to every client) |
+| `AUTH_HSTS_ENABLED` | `false` | Enable HSTS (only behind TLS!) |
+| `AUTH_CLIENT_REGISTRATION_TOKEN` | empty | Enables `POST /api/v1/clients` when set |
 
 ### IAM Server
 
-Important defaults in [iam-server/src/main/resources/application.yml](iam-server/src/main/resources/application.yml):
+Important settings in [iam-server/src/main/resources/application.yml](iam-server/src/main/resources/application.yml):
 
-| Property | Default |
-|---|---|
-| `spring.datasource.url` | `jdbc:postgresql://localhost:5432/iamdb` |
-| `spring.datasource.username` | `iam_user` |
-| `spring.datasource.password` | `iam_pass` |
-| `iam.internal-token` | `dev-internal-token` |
-| `email.enabled` | `false` |
+| Env var | Default | Purpose |
+|---|---|---|
+| `IAM_DB_USER` / `IAM_DB_PASS` | `iam_user` / `iam_pass` | Postgres credentials |
+| `IAM_INTERNAL_TOKEN` | `dev-internal-token` | Shared internal-service secret (must match auth-server/gateway) |
+| `IAM_SIGNING_KEY_PATH` | empty | Persisted HMAC key file; empty = ephemeral (dev only) |
+| `IAM_SIGNING_PREVIOUS_KEY_PATHS` | empty | Optional rotation keys still accepted for verification |
+| `IAM_LOGIN_MAX_ATTEMPTS` | `5` | Failed attempts before lockout |
+| `IAM_LOGIN_LOCKOUT_MINUTES` | `15` | Lockout duration |
+| `IAM_PASSWORD_HISTORY_SIZE` | `5` | Recent passwords that cannot be reused |
+| `IAM_AUDIT_RETENTION_DAYS` | `90` | Audit-log retention (0 disables pruning) |
+| `EMAIL_ENABLED` / `EMAIL_FROM` | `false` / `no-reply@localhost` | Email delivery (logs links when disabled) |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USERNAME` / `SMTP_PASSWORD` | — | SMTP server for real email |
+| `EMAIL_RESET_LINK_BASE` / `EMAIL_VERIFICATION_LINK_BASE` | `http://localhost:3000/...` | Link bases embedded in emails |
+| `EMAIL_VERIFICATION_REQUIRED` | `false` | Block login until the email is verified |
 
 ### Resource Server
 
-Important defaults in [resource-server/src/main/resources/application.yml](resource-server/src/main/resources/application.yml):
+Important settings in [resource-server/src/main/resources/application.yml](resource-server/src/main/resources/application.yml):
 
-| Property | Default |
+| Env var | Default |
 |---|---|
-| `spring.datasource.url` | `jdbc:postgresql://localhost:5432/resourcedb` |
-| `spring.datasource.username` | `resource_user` |
-| `spring.datasource.password` | `resource_pass` |
-| `spring.security.oauth2.resourceserver.jwt.issuer-uri` | `http://localhost:9081` |
-| `spring.security.oauth2.resourceserver.jwt.jwk-set-uri` | `http://localhost:9081/oauth2/jwks` |
+| `RESOURCE_DB_USER` / `RESOURCE_DB_PASS` | `resource_user` / `resource_pass` |
+| `AUTH_ISSUER` | `http://localhost:9081` |
+| `AUTH_JWKS_URI` | `http://localhost:9081/oauth2/jwks` |
 
 ### Gateway
 
-Important defaults in [gateway/src/main/resources/application.yml](gateway/src/main/resources/application.yml):
+Important settings in [gateway/src/main/resources/application.yml](gateway/src/main/resources/application.yml):
 
-| Property | Default |
-|---|---|
-| `server.port` | `9080` |
-| `AUTH_ISSUER` | `http://localhost:9081` |
-| `AUTH_JWKS_URI` | `http://localhost:9081/oauth2/jwks` |
+| Env var | Default | Purpose |
+|---|---|---|
+| `AUTH_ISSUER` / `AUTH_JWKS_URI` | `http://localhost:9081` / `.../oauth2/jwks` | JWT validation |
+| `GATEWAY_HSTS_ENABLED` | `false` | HSTS (only behind TLS!) |
+| `GATEWAY_CORS_ALLOWED_ORIGINS` | empty | Comma-separated allowed origins; empty = CORS disabled |
+| `GATEWAY_RATE_LIMIT_ENABLED` / `GATEWAY_RATE_LIMIT_PER_MINUTE` | `true` / `30` | Per-IP limit on register/forgot-password |
+| `GATEWAY_REVOCATION_CHECK_ENABLED` | `false` (Compose: `true`) | Check presented JWTs against the auth-server denylist |
+| `AUTH_SERVER_URL` | `http://localhost:9081` | Denylist-check target |
 
 Public gateway paths are configured under `gateway.public-paths`.
 
@@ -260,13 +296,21 @@ curl -s -X POST http://localhost:9083/api/v1/auth/register \
   -d '{"email":"alice@example.com","password":"securepass123","firstName":"Alice","lastName":"Johnson"}'
 ```
 
-### Check IAM Login
+### Validate Credentials (internal, the real login path)
+
+There is deliberately **no public login endpoint**. Credential checks happen
+only over the internal, `X-Internal-Token`-protected endpoint that auth-server
+uses:
 
 ```bash
-curl -s -X POST http://localhost:9083/api/v1/auth/login \
+curl -s -X POST http://localhost:9083/internal/auth/validate \
   -H "Content-Type: application/json" \
-  -d '{"email":"alice@example.com","password":"securepass123"}'
+  -H "X-Internal-Token: dev-internal-token" \
+  -d '{"email":"alice@example.com","password":"securepass123","userType":"USER"}'
 ```
+
+Failed attempts are audited and count toward the account lockout (5 failures →
+15 minutes, HTTP 429 with `Retry-After`).
 
 ### Get a Client Credentials Token
 
@@ -309,9 +353,33 @@ For a raw authorization URL, open:
 http://localhost:9081/oauth2/authorize?client_id=web-client&response_type=code&redirect_uri=http://localhost:9084/login/oauth2/code/auth-platform&scope=openid+profile+read+write
 ```
 
-Then log in with email, password, and account type.
+Then log in with email, password, and account type. Clients with
+`require_authorization_consent` (including `web-client`) show a consent page
+(`/oauth2/consent`) before the code is issued; the choice is remembered per
+user + client.
 
 If you open the auth-server login page directly at `http://localhost:9081/login`, a successful login redirects to `http://localhost:9081/login/success` by default. Override that with `AUTH_LOGIN_SUCCESS_URL` if you want a different local success target.
+
+### Register a Client Dynamically
+
+Disabled unless a registration token is configured. Start auth-server with
+`AUTH_CLIENT_REGISTRATION_TOKEN=<strong-random-value>`, then:
+
+```bash
+curl -s -X POST http://localhost:9081/internal/clients \
+  -H "Authorization: Bearer <strong-random-value>" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "clientName": "My App",
+        "redirectUris": ["http://localhost:3000/callback"],
+        "grantTypes": ["authorization_code", "refresh_token"],
+        "scopes": ["openid", "profile", "read"]
+      }'
+```
+
+The response contains the generated `client_id`/`client_secret` (the secret is
+shown once, bcrypt-hashed at rest). The endpoint is internal (like the other
+`/internal/**` services), so it is not exposed through the gateway.
 
 ## Gateway Routes
 
@@ -353,7 +421,9 @@ On WSL, if `docker info` works in a fresh WSL terminal but not in an older termi
 
 ## Smoke Test
 
-`smoke-test.sh` expects all four services to already be running locally.
+`smoke-test.sh` expects all four services to already be running locally. It is
+idempotent: it uses a randomized email and cleans up its rows (and leftovers
+from interrupted runs) on exit, so it can be re-run freely.
 
 ```bash
 docker compose up -d postgres
@@ -365,7 +435,8 @@ docker compose up -d postgres
 ./smoke-test.sh
 ```
 
-Run each `bootRun` command in its own terminal.
+Run each `bootRun` command in its own terminal. The same script runs in CI
+against the Compose-managed Postgres.
 
 ## Project Layout
 
@@ -383,6 +454,38 @@ Run each `bootRun` command in its own terminal.
 ├── gradlew.bat
 └── smoke-test.sh
 ```
+
+## Production Readiness Checklist
+
+Before deploying:
+
+1. **Secrets** — set strong values for `IAM_INTERNAL_TOKEN`, `*_DB_PASS`,
+   `WEB_CLIENT_SECRET`, and (if used) `AUTH_CLIENT_REGISTRATION_TOKEN`. With
+   `SPRING_PROFILES_ACTIVE=prod`, each server refuses to start if a known dev
+   default secret or a missing signing-key path is detected — including an
+   enabled admin account still using `admin123`.
+2. **Signing keys** — point `AUTH_SIGNING_KEY_PATH` and `IAM_SIGNING_KEY_PATH`
+   at persistent, permission-restricted (0600) files outside the container
+   ephemeral layer. Generated automatically on first boot if missing.
+3. **Issuer/audience** — set `AUTH_ISSUER` to the externally reachable URL
+   (must match what downstream services validate) and `AUTH_TOKEN_AUDIENCE`
+   to your resource-server audience(s).
+4. **Revocation** — keep `GATEWAY_REVOCATION_CHECK_ENABLED=true` (the Compose
+   default) so revoked tokens are rejected immediately, not just at expiry.
+5. **Email** — `EMAIL_ENABLED=true` + `SMTP_*` for real password-reset and
+   verification emails; consider `EMAIL_VERIFICATION_REQUIRED=true`.
+6. **TLS** — terminate TLS at a proxy in front of the gateway; only then
+   enable `GATEWAY_HSTS_ENABLED` / `AUTH_HSTS_ENABLED`. Don't publish the
+   backend service ports (9081–9084) publicly; expose only the gateway.
+7. **Observability** — scrape `/actuator/prometheus` per service; non-health
+   actuator endpoints require admin authentication.
+8. **CI** — the GitHub Actions workflow (build+tests, e2e smoke, Docker
+   builds) runs on every push to `main`; consider branch protection.
+
+Known remaining gaps are tracked in
+[docs/production-readiness-research.md](docs/production-readiness-research.md)
+§4/§6 (consent is implemented; dynamic client registration is token-gated;
+MFA/SSO/reference tokens are roadmap items).
 
 ## Troubleshooting
 
