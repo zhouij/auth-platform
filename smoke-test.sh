@@ -4,6 +4,9 @@ set -euo pipefail
 # Auth Gateway System — End-to-End Smoke Test
 # Run after: docker compose up --build -d
 # Prerequisites: jq installed
+#
+# Idempotent: uses a randomized email and cleans its own rows up, so it can be
+# re-run against the same database without manual deletes.
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -15,6 +18,19 @@ pass() { echo -e "${GREEN}PASS${NC}: $*"; }
 AUTH_SERVER="http://localhost:9081"
 GATEWAY="http://localhost:9080"
 IAM_SERVER="http://localhost:9083"
+INTERNAL_TOKEN="${IAM_INTERNAL_TOKEN:-dev-internal-token}"
+
+SMOKE_EMAIL="smoketest-$(date +%s)-$RANDOM@example.com"
+
+# Best-effort cleanup of stale rows from interrupted previous runs (and of
+# this run's user on exit) when a reachable local Postgres is available.
+cleanup() {
+  if command -v docker >/dev/null 2>&1 && docker compose ps postgres 2>/dev/null | grep -q "Up"; then
+    docker compose exec -T postgres psql -U postgres -d iamdb \
+      -c "DELETE FROM iam.users WHERE email LIKE 'smoketest-%@example.com';" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
 
 echo "=== Auth Gateway Smoke Test ==="
 echo ""
@@ -68,25 +84,27 @@ pass "401 without token"
 echo "7. IAM User Registration"
 REG=$(curl -fsS -X POST "$IAM_SERVER/api/v1/auth/register" \
   -H "Content-Type: application/json" \
-  -d '{"email":"smoketest@example.com","password":"testpass123","firstName":"Smoke","lastName":"Test"}' 2>/dev/null) || fail "User registration"
+  -d "{\"email\":\"$SMOKE_EMAIL\",\"password\":\"testpass123\",\"firstName\":\"Smoke\",\"lastName\":\"Test\"}" 2>/dev/null) || fail "User registration"
 USER_ID=$(echo "$REG" | jq -r .userId)
 [ -n "$USER_ID" ] && [ "$USER_ID" != "null" ] || fail "User ID not returned"
 pass "User registered (id=$USER_ID)"
 
-# 8. IAM Server — login
-echo "8. IAM Login"
-LOGIN=$(curl -fsS -X POST "$IAM_SERVER/api/v1/auth/login" \
+# 8. IAM Server — internal credential validation (the real login path)
+echo "8. IAM Internal Credential Validation"
+VALIDATE=$(curl -fsS -X POST "$IAM_SERVER/internal/auth/validate" \
   -H "Content-Type: application/json" \
-  -d '{"email":"smoketest@example.com","password":"testpass123"}' 2>/dev/null) || fail "Login endpoint"
-LOGIN_TYPE=$(echo "$LOGIN" | jq -r .userType)
+  -H "X-Internal-Token: $INTERNAL_TOKEN" \
+  -d "{\"email\":\"$SMOKE_EMAIL\",\"password\":\"testpass123\",\"userType\":\"USER\"}" 2>/dev/null) || fail "Internal validate endpoint"
+LOGIN_TYPE=$(echo "$VALIDATE" | jq -r .userType)
 [ "$LOGIN_TYPE" = "USER" ] || fail "User type: expected USER, got $LOGIN_TYPE"
-pass "Login successful (type=$LOGIN_TYPE)"
+pass "Credential validation successful (type=$LOGIN_TYPE)"
 
-# 9. IAM Server — login with wrong password (expect 401)
-echo "9. IAM Login — Wrong Password (expect 401)"
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$IAM_SERVER/api/v1/auth/login" \
+# 9. IAM Server — internal validation with wrong password (expect 401)
+echo "9. IAM Internal Validation — Wrong Password (expect 401)"
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$IAM_SERVER/internal/auth/validate" \
   -H "Content-Type: application/json" \
-  -d '{"email":"smoketest@example.com","password":"wrongpass"}' 2>/dev/null)
+  -H "X-Internal-Token: $INTERNAL_TOKEN" \
+  -d "{\"email\":\"$SMOKE_EMAIL\",\"password\":\"wrongpass\",\"userType\":\"USER\"}" 2>/dev/null)
 [ "$HTTP_CODE" = "401" ] || fail "Expected 401 with wrong password, got $HTTP_CODE"
 pass "401 with wrong password"
 
@@ -94,7 +112,7 @@ pass "401 with wrong password"
 echo "10. IAM — Duplicate Registration (expect 409)"
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$IAM_SERVER/api/v1/auth/register" \
   -H "Content-Type: application/json" \
-  -d '{"email":"smoketest@example.com","password":"testpass123"}' 2>/dev/null)
+  -d "{\"email\":\"$SMOKE_EMAIL\",\"password\":\"testpass123\"}" 2>/dev/null)
 [ "$HTTP_CODE" = "409" ] || fail "Expected 409 for duplicate email, got $HTTP_CODE"
 pass "409 for duplicate registration"
 

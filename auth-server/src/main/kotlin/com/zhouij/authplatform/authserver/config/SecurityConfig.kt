@@ -8,17 +8,20 @@ import org.springframework.context.annotation.Configuration
 import org.springframework.core.annotation.Order
 import org.springframework.http.HttpMethod
 import org.springframework.http.MediaType
+import org.springframework.security.authentication.AnonymousAuthenticationToken
 import org.springframework.security.authentication.AuthenticationManager
 import org.springframework.security.authentication.ProviderManager
 import org.springframework.security.config.Customizer
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity
+import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationCodeRequestAuthenticationException
 import org.springframework.security.web.SecurityFilterChain
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter
 import org.springframework.security.web.savedrequest.HttpSessionRequestCache
 import org.springframework.security.web.util.matcher.MediaTypeRequestMatcher
+import org.springframework.web.util.UriComponentsBuilder
 
 @Configuration
 @EnableWebSecurity
@@ -39,16 +42,34 @@ class SecurityConfig {
             .oauth2AuthorizationServer { authorizationServer ->
                 authorizationServer.oidc(Customizer.withDefaults())
                 authorizationServer.authorizationEndpoint { endpoint ->
+                    // Custom consent screen for clients that require
+                    // authorization consent.
+                    endpoint.consentPage("/oauth2/consent")
                     // Send unauthenticated browser requests to the login page
                     // (preserving the authorize request), instead of failing the
                     // OAuth flow with an "invalid_request" error redirect.
+                    // Authenticated requests that still fail (e.g. consent
+                    // denied -> access_denied) get the standard OAuth error
+                    // redirect back to the client's redirect_uri.
                     endpoint.errorResponseHandler { request, response, exception ->
                         val codeRequest =
                             (exception as? OAuth2AuthorizationCodeRequestAuthenticationException)
                                 ?.authorizationCodeRequestAuthentication
-                        if (codeRequest != null && !codeRequest.isAuthenticated) {
+                        // The code-request token itself is always unauthenticated at
+                        // this stage; decide by the browser session instead.
+                        val sessionAuth = SecurityContextHolder.getContext().authentication
+                        val userLoggedIn = sessionAuth != null && sessionAuth.isAuthenticated &&
+                            sessionAuth !is AnonymousAuthenticationToken
+                        if (codeRequest != null && !userLoggedIn) {
                             HttpSessionRequestCache().saveRequest(request, response)
                             response.sendRedirect("/login")
+                        } else if (codeRequest != null) {
+                            val errorRedirect = UriComponentsBuilder
+                                .fromUriString(codeRequest.redirectUri)
+                                .queryParam("error", exception.error.errorCode)
+                                .queryParam("error_description", exception.error.description)
+                            codeRequest.state?.let { errorRedirect.queryParam("state", it) }
+                            response.sendRedirect(errorRedirect.build().encode().toUriString())
                         } else {
                             response.sendError(HttpServletResponse.SC_BAD_REQUEST)
                         }
@@ -72,7 +93,10 @@ class SecurityConfig {
         http
             .authorizeHttpRequests { authorize ->
                 authorize
-                    .requestMatchers("/actuator/**").permitAll()
+                    // Only health and metrics are public; other actuator
+                    // endpoints require an authenticated session.
+                    .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/prometheus").permitAll()
+                    .requestMatchers("/actuator/**").authenticated()
                     .requestMatchers("/css/**", "/js/**", "/images/**").permitAll()
                     .requestMatchers(HttpMethod.GET, "/login").permitAll()
                     .requestMatchers(HttpMethod.POST, "/login").permitAll()

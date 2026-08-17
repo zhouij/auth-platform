@@ -4,18 +4,13 @@ import com.zhouij.authplatform.iam.domain.AuditLogEntity
 import com.zhouij.authplatform.iam.service.AdminUserService
 import com.zhouij.authplatform.iam.service.AuditLogService
 import com.zhouij.authplatform.iam.service.EmailVerificationService
-import com.zhouij.authplatform.iam.service.LoginAttemptService
 import com.zhouij.authplatform.iam.service.PasswordResetService
 import com.zhouij.authplatform.iam.service.UserService
 import jakarta.servlet.http.HttpServletRequest
-import org.springframework.beans.factory.annotation.Value
-import org.springframework.http.HttpHeaders
-import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.web.bind.annotation.*
-import java.time.Duration
 import java.util.UUID
 
 @RestController
@@ -24,13 +19,9 @@ class AuthController(
     private val userService: UserService,
     private val adminUserService: AdminUserService,
     private val passwordResetService: PasswordResetService,
-    private val loginAttemptService: LoginAttemptService,
     private val emailVerificationService: EmailVerificationService,
     private val auditLogService: AuditLogService
 ) {
-
-    @Value("\${email.verification-required:false}")
-    private var verificationRequired: Boolean = false
 
     @PostMapping("/auth/register")
     fun register(
@@ -68,113 +59,10 @@ class AuthController(
         }
     }
 
-    @PostMapping("/auth/login")
-    fun login(
-        @RequestBody request: LoginRequest,
-        httpRequest: HttpServletRequest
-    ): ResponseEntity<Map<String, Any>> {
-        val normalizedEmail = request.email.trim().lowercase()
-
-        // Brute-force protection: reject while the account is locked out
-        val lockout = loginAttemptService.lockoutRemaining(normalizedEmail)
-        if (lockout != null) {
-            auditLogService.record(
-                action = "LOGIN",
-                outcome = AuditLogEntity.Outcome.FAILURE,
-                target = normalizedEmail,
-                ipAddress = clientIp(httpRequest),
-                detail = "Account locked out"
-            )
-            val headers = HttpHeaders()
-            headers.set(HttpHeaders.RETRY_AFTER, lockout.seconds.coerceAtLeast(1).toString())
-            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).headers(headers)
-                .body(mapOf<String, Any>("error" to "Too many failed attempts — account temporarily locked"))
-        }
-
-        // Try USER first, then ADMIN
-        val user = userService.validateCredentials(request.email, request.password)
-        if (user != null) {
-            if (verificationRequired && !user.emailVerified) {
-                auditLogService.record(
-                    action = "LOGIN",
-                    outcome = AuditLogEntity.Outcome.FAILURE,
-                    actorType = "USER",
-                    actorId = user.id.toString(),
-                    target = user.email,
-                    ipAddress = clientIp(httpRequest),
-                    detail = "Email not verified"
-                )
-                return ResponseEntity.status(403).body(
-                    mapOf("error" to "Email address not verified")
-                )
-            }
-            loginAttemptService.recordSuccess(normalizedEmail)
-            userService.recordLogin(user)
-            auditLogService.record(
-                action = "LOGIN",
-                outcome = AuditLogEntity.Outcome.SUCCESS,
-                actorType = "USER",
-                actorId = user.id.toString(),
-                target = user.email,
-                ipAddress = clientIp(httpRequest)
-            )
-            return ResponseEntity.ok(
-                mapOf(
-                    "userId" to user.id.toString(),
-                    "email" to user.email,
-                    "username" to (user.username ?: user.email.substringBefore('@')),
-                    "firstName" to (user.firstName ?: ""),
-                    "lastName" to (user.lastName ?: ""),
-                    "userType" to "USER",
-                    "enabled" to user.enabled,
-                    "emailVerified" to user.emailVerified,
-                    "authorities" to emptyList<String>()
-                )
-            )
-        }
-
-        val admin = adminUserService.validateCredentials(request.email, request.password)
-        if (admin != null) {
-            loginAttemptService.recordSuccess(normalizedEmail)
-            adminUserService.recordLogin(admin)
-            val authorities = mutableListOf("ROLE_ADMIN")
-            admin.groups.forEach { group ->
-                authorities.add("ROLE_ADMIN_GROUP_${group.name}")
-            }
-            auditLogService.record(
-                action = "LOGIN",
-                outcome = AuditLogEntity.Outcome.SUCCESS,
-                actorType = "ADMIN",
-                actorId = admin.id.toString(),
-                target = admin.email,
-                ipAddress = clientIp(httpRequest)
-            )
-            return ResponseEntity.ok(
-                mapOf(
-                    "userId" to admin.id.toString(),
-                    "email" to admin.email,
-                    "username" to (admin.username ?: admin.email.substringBefore('@')),
-                    "firstName" to (admin.firstName ?: ""),
-                    "lastName" to (admin.lastName ?: ""),
-                    "userType" to "ADMIN",
-                    "enabled" to admin.enabled,
-                    "authorities" to authorities
-                )
-            )
-        }
-
-        loginAttemptService.recordFailure(normalizedEmail)
-        auditLogService.record(
-            action = "LOGIN",
-            outcome = AuditLogEntity.Outcome.FAILURE,
-            target = normalizedEmail,
-            ipAddress = clientIp(httpRequest),
-            detail = "Invalid credentials"
-        )
-        return ResponseEntity.status(401).body(
-            mapOf("error" to "Invalid email or password")
-        )
-    }
+    // NOTE: there is deliberately no public /api/v1/auth/login endpoint.
+    // Credential checks happen only over the X-Internal-Token-protected
+    // /internal/auth/validate (used by auth-server). The old debug-style login
+    // endpoint returned profile data without any token and was removed.
 
     @PostMapping("/auth/forgot-password")
     fun forgotPassword(
@@ -394,11 +282,6 @@ data class RegisterRequest(
     val password: String,
     val firstName: String? = null,
     val lastName: String? = null
-)
-
-data class LoginRequest(
-    val email: String,
-    val password: String
 )
 
 data class ForgotPasswordRequest(

@@ -44,6 +44,9 @@ auth:
   security:
     # HSTS only makes sense behind TLS; enable in prod/docker deployments.
     hsts-enabled: ${AUTH_HSTS_ENABLED:false}
+  client-registration:
+    # Set to a strong random value to enable POST /api/v1/clients; unset = disabled.
+    token: ${AUTH_CLIENT_REGISTRATION_TOKEN:}
 
 management:
   endpoints:

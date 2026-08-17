@@ -68,6 +68,12 @@ iam:
     window-minutes: ${IAM_LOGIN_WINDOW_MINUTES:15}
   password:
     history-size: ${IAM_PASSWORD_HISTORY_SIZE:5}
+  audit:
+    retention-days: ${IAM_AUDIT_RETENTION_DAYS:90}
+    # Daily at 04:00. Cron expressions contain spaces and colons — keep the
+    # YAML double quotes here; override via spring.config.additional-location
+    # or a profile file rather than a placeholder default.
+    retention-cron: "0 0 4 * * *"
 
 email:
   enabled: ${EMAIL_ENABLED:false}

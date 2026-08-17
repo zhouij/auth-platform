@@ -119,7 +119,11 @@ services:
       IAM_INTERNAL_TOKEN: ${IAM_INTERNAL_TOKEN:-dev-internal-token}
       GATEWAY_HSTS_ENABLED: ${GATEWAY_HSTS_ENABLED:-false}
       GATEWAY_CORS_ALLOWED_ORIGINS: ${GATEWAY_CORS_ALLOWED_ORIGINS:-}
-      GATEWAY_REVOCATION_CHECK_ENABLED: ${GATEWAY_REVOCATION_CHECK_ENABLED:-false}
+      # Denylist enforcement is ON by default in Docker deployments
+      # (auth-server is reachable in-network); set to false only for
+      # localhost dev runs of the gateway.
+      GATEWAY_REVOCATION_CHECK_ENABLED: ${GATEWAY_REVOCATION_CHECK_ENABLED:-true}
+      AUTH_SERVER_URL: http://auth-server:9081
     ports:
       - "9080:9080"
     depends_on:

@@ -22,7 +22,10 @@ class SecurityConfig {
             .authorizeHttpRequests { authorize ->
                 authorize
                     .requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
-                    .requestMatchers("/actuator/**").permitAll()
+                    // Only health and metrics are public; other actuator
+                    // endpoints require an admin token.
+                    .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/prometheus").permitAll()
+                    .requestMatchers("/actuator/**").hasRole("ADMIN")
                     .requestMatchers("/api/v1/public/**").permitAll()
                     .requestMatchers("/api/v1/me/**").authenticated()
                     .anyRequest().authenticated()

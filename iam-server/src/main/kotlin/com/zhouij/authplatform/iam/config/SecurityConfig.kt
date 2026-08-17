@@ -22,7 +22,10 @@ class SecurityConfig {
             .authorizeHttpRequests { authorize ->
                 authorize
                     .requestMatchers("/api/v1/auth/**").permitAll()
-                    .requestMatchers("/actuator/**").permitAll()
+                    // Only health and metrics are public; everything else on
+                    // /actuator (env, beans, loggers, ...) requires an admin token.
+                    .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/prometheus").permitAll()
+                    .requestMatchers("/actuator/**").hasRole("ADMIN")
                     .requestMatchers("/internal/**").permitAll() // protected by X-Internal-Token
                     .requestMatchers("/api/v1/me/**").authenticated()
                     .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")

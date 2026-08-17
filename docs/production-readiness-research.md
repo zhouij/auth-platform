@@ -320,3 +320,58 @@ now also pins `kotlin.compiler.execution.strategy=in-process` and disables the
 daemon); `/tmp` is per-shell ephemeral — keep run logs/keys inside the repo
 (e.g. `.run-keys/`, gitignored). Smoke test stays non-idempotent for
 `smoketest@example.com`.
+
+---
+
+## 7. Third session (2026-08-16): hardening + functional gaps follow-up
+
+### Implemented & verified live
+
+- **Debug login endpoint removed** — `POST /api/v1/auth/login` (which returned
+  profile data with no token) is gone; credential checks exist only behind
+  `X-Internal-Token` on `/internal/auth/validate`. The gateway no longer
+  publishes `/iam/v1/auth/login` (unmapped → 401). The `email.verification-required`
+  gate now applies on the internal path (the real login flow) as well.
+- **Seeded-admin prod guard** — under the `prod` profile, IAM refuses to start
+  when any ENABLED admin account still verifies against a known default
+  password (`admin123` etc.). Verified: guard fires with a clear message while
+  the generic secrets guard passes.
+- **Actuator tightening** — `/actuator/**` is no longer public on
+  iam/resource/auth servers; only `health`/`prometheus` are. Everything else
+  needs an admin token (IAM/resource) or a session (auth-server). Verified
+  `/actuator/env` → 401/302.
+- **Revocation enforcement by default in Docker** — compose sets
+  `GATEWAY_REVOCATION_CHECK_ENABLED=true` (+ `AUTH_SERVER_URL`); verified: a
+  revoked token is rejected by the gateway immediately (401) while direct
+  backend access (unpublished in prod) still accepts it, as designed.
+- **Audit-log retention** — scheduled prune (default 90 days, daily 04:00,
+  `iam.audit.retention-*`).
+- **Idempotent smoke test** — randomized email + self-cleanup; verified by
+  running it twice back-to-back.
+- **Dynamic client registration (B.11, minimal)** — token-gated
+  `POST /internal/clients` (disabled unless `AUTH_CLIENT_REGISTRATION_TOKEN`
+  is set) creates DB clients with generated/bcrypt-hashed secrets; verified
+  end-to-end: registered client obtained a `client_credentials` token that the
+  gateway accepted.
+- **Consent screen (B.9)** — custom `/oauth2/consent` page + `V9` migration
+  re-enabling consent for `web-client`. Verified the full browser flow with
+  curl: authorize → login → consent → code → PKCE token exchange
+  (access+id+refresh), consent remembered on re-authorize, and denial
+  redirecting to the client with `error=access_denied&state=...`.
+  SAS 7 flow notes for future maintainers: consent POSTs resume at
+  `POST /oauth2/authorize` (no `response_type`); the consent-page `state` is a
+  session key, NOT a redirect target; consent rows are keyed by the
+  RegisteredClient's internal UUID id; the `errorResponseHandler` must consult
+  the session security context (code-request tokens are always unauthenticated
+  at that point).
+- **Docs/ops** — README rewritten for the env-var inventory + prod checklist;
+  `.env.example` added; CI actions bumped to `checkout@v5`/`setup-java@v5`
+  (clears the Node-20 deprecation annotations; will be re-verified on the next
+  CI run).
+
+### Still open (unchanged)
+
+B.13 fine-grained authz, web-client JDBC sessions + browser verification of
+the BFF dashboard, OAuth-flow Testcontainers tests, tracing, TLS termination
+for real deployments, Redis-based rate limiting for multi-replica, and all of
+section D (MFA, SSO, DPoP/reference tokens, privacy, compliance).
