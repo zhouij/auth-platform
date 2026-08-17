@@ -4,6 +4,7 @@ import com.zhouij.authplatform.iam.domain.AdminUserEntity
 import com.zhouij.authplatform.iam.repository.AdminGroupRepository
 import com.zhouij.authplatform.iam.repository.AdminPasswordResetTokenRepository
 import com.zhouij.authplatform.iam.repository.AdminUserRepository
+import com.zhouij.authplatform.iam.repository.LoginAttemptRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
@@ -15,7 +16,8 @@ class AdminUserService(
     private val adminGroupRepository: AdminGroupRepository,
     private val passwordService: PasswordService,
     private val adminPasswordResetTokenRepository: AdminPasswordResetTokenRepository,
-    private val passwordHistoryService: PasswordHistoryService
+    private val passwordHistoryService: PasswordHistoryService,
+    private val loginAttemptRepository: LoginAttemptRepository
 ) {
 
     @Transactional
@@ -161,4 +163,28 @@ class AdminUserService(
 
     @Transactional(readOnly = true)
     fun listGroups() = adminGroupRepository.findAll()
+
+    /**
+     * Right to erasure for admin accounts: anonymizes, disables, detaches from
+     * admin groups, and clears password history, reset tokens, and
+     * login-attempt state. Outstanding JWTs are revoked via the auth-server.
+     */
+    @Transactional
+    fun deleteAccount(userId: UUID) {
+        val admin = findById(userId) ?: return
+        val oldEmail = admin.email
+        admin.email = "deleted-${admin.id}@anonymized.invalid"
+        admin.username = null
+        admin.firstName = null
+        admin.lastName = null
+        admin.enabled = false
+        admin.groups = mutableSetOf()
+        admin.credentialsChangedAt = Instant.now()
+        admin.updatedAt = Instant.now()
+        adminUserRepository.save(admin)
+
+        adminPasswordResetTokenRepository.deleteByAdminUserId(userId)
+        passwordHistoryService.deleteHistoryForAdmin(userId)
+        loginAttemptRepository.deleteById(oldEmail.lowercase())
+    }
 }

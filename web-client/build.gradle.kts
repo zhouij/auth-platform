@@ -14,6 +14,15 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-webflux")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("io.micrometer:micrometer-registry-prometheus")
+    implementation("io.micrometer:micrometer-tracing-bridge-otel")
+
+    // Browser sessions are stored in PostgreSQL (Spring Session JDBC) so the
+    // BFF survives restarts and scales past one replica.
+    implementation("org.springframework.boot:spring-boot-starter-jdbc")
+    implementation("org.springframework.session:spring-session-jdbc")
+    implementation("org.springframework.boot:spring-boot-session")
+    implementation("org.springframework.boot:spring-boot-session-jdbc")
+    runtimeOnly("org.postgresql:postgresql")
 
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
 

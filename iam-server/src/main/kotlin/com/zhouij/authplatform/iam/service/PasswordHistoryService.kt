@@ -49,6 +49,14 @@ class PasswordHistoryService(
         trim(userId, adminUserId)
     }
 
+    /** Erasure support: drop the account's password history. */
+    @Transactional
+    fun deleteHistoryForUser(userId: UUID) = passwordHistoryRepository.deleteByUserId(userId)
+
+    /** Erasure support: drop the admin account's password history. */
+    @Transactional
+    fun deleteHistoryForAdmin(adminUserId: UUID) = passwordHistoryRepository.deleteByAdminUserId(adminUserId)
+
     private fun recentHashes(userId: UUID?, adminUserId: UUID?): List<String> {
         val page = PageRequest.of(0, historySize.coerceAtLeast(1))
         return when {

@@ -1,9 +1,24 @@
 server:
   port: 9084
+  servlet:
+    session:
+      cookie:
+        name: ${BFF_SESSION_COOKIE:BFF_SESSION}
 
 spring:
   application:
     name: web-client
+  datasource:
+    url: jdbc:postgresql://${WEB_DB_HOST:localhost}:5432/webdb
+    username: ${WEB_DB_USER:web_user}
+    password: ${WEB_DB_PASS:web_pass}
+  session:
+    store-type: jdbc
+    jdbc:
+      # Session table schema is owned by Spring Session; create it if absent.
+      initialize-schema: always
+      # Hourly cleanup of expired sessions (avoids unbounded growth).
+      cleanup-cron: "0 0 * * * *"
   security:
     oauth2:
       client:

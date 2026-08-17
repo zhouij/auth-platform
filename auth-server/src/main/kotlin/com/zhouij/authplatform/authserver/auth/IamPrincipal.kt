@@ -12,7 +12,7 @@ data class IamPrincipal(
     val userType: String,
     val enabled: Boolean,
     val authorities: Collection<GrantedAuthority>
-) : java.security.Principal {
+) : java.security.Principal, java.io.Serializable {
 
     // Used by Authentication.getName() and therefore as the oauth2_authorization
     // principal_name (max 200 chars) and the default JWT "sub" claim.

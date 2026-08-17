@@ -1,2 +1,8 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://${WEB_DB_HOST:postgres}:5432/webdb
+    username: ${WEB_DB_USER:web_user}
+    password: ${WEB_DB_PASS:web_pass}
+
 gateway:
   base-url: ${GATEWAY_BASE_URL:http://gateway:9080}

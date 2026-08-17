@@ -5,6 +5,7 @@ import com.zhouij.authplatform.iam.service.AdminUserService
 import com.zhouij.authplatform.iam.service.AuditLogService
 import com.zhouij.authplatform.iam.service.EmailVerificationService
 import com.zhouij.authplatform.iam.service.PasswordResetService
+import com.zhouij.authplatform.iam.service.TokenRevocationClient
 import com.zhouij.authplatform.iam.service.UserService
 import jakarta.servlet.http.HttpServletRequest
 import org.springframework.http.ResponseEntity
@@ -20,7 +21,8 @@ class AuthController(
     private val adminUserService: AdminUserService,
     private val passwordResetService: PasswordResetService,
     private val emailVerificationService: EmailVerificationService,
-    private val auditLogService: AuditLogService
+    private val auditLogService: AuditLogService,
+    private val tokenRevocationClient: TokenRevocationClient
 ) {
 
     @PostMapping("/auth/register")
@@ -269,6 +271,95 @@ class AuthController(
             UserService.ChangePasswordResult.USER_NOT_FOUND ->
                 ResponseEntity.notFound().build()
         }
+    }
+
+    // Self-service: data export (GDPR art. 20)
+    @GetMapping("/me/export")
+    fun exportData(
+        @AuthenticationPrincipal jwt: Jwt,
+        httpRequest: HttpServletRequest
+    ): ResponseEntity<Map<String, Any>> {
+        val userId = runCatching { UUID.fromString(jwt.subject) }.getOrNull()
+            ?: return ResponseEntity.notFound().build()
+        val userType = jwt.claims["user_type"] as? String
+
+        val export = when (userType?.uppercase()) {
+            "ADMIN" -> adminUserService.findById(userId)?.let { admin ->
+                mapOf<String, Any>(
+                    "userType" to "ADMIN",
+                    "userId" to admin.id.toString(),
+                    "email" to admin.email,
+                    "username" to (admin.username ?: ""),
+                    "firstName" to (admin.firstName ?: ""),
+                    "lastName" to (admin.lastName ?: ""),
+                    "enabled" to admin.enabled,
+                    "groups" to admin.groups.map { it.name },
+                    "createdAt" to admin.createdAt.toString(),
+                    "updatedAt" to admin.updatedAt.toString(),
+                    "lastLoginAt" to (admin.lastLoginAt?.toString() ?: ""),
+                    "credentialsChangedAt" to admin.credentialsChangedAt.toString()
+                )
+            } ?: return ResponseEntity.notFound().build()
+            else -> userService.findById(userId)?.let { user ->
+                mapOf<String, Any>(
+                    "userType" to "USER",
+                    "userId" to user.id.toString(),
+                    "email" to user.email,
+                    "username" to (user.username ?: ""),
+                    "firstName" to (user.firstName ?: ""),
+                    "lastName" to (user.lastName ?: ""),
+                    "enabled" to user.enabled,
+                    "emailVerified" to user.emailVerified,
+                    "createdAt" to user.createdAt.toString(),
+                    "updatedAt" to user.updatedAt.toString(),
+                    "lastLoginAt" to (user.lastLoginAt?.toString() ?: ""),
+                    "credentialsChangedAt" to user.credentialsChangedAt.toString()
+                )
+            } ?: return ResponseEntity.notFound().build()
+        }
+
+        auditLogService.record(
+            action = "DATA_EXPORTED",
+            outcome = AuditLogEntity.Outcome.SUCCESS,
+            actorType = userType,
+            actorId = userId.toString(),
+            target = export["email"] as? String,
+            ipAddress = clientIp(httpRequest)
+        )
+        return ResponseEntity.ok(export)
+    }
+
+    // Self-service: right to erasure (GDPR art. 17) — anonymizes the account,
+    // disables it, clears associated data, and revokes outstanding tokens.
+    @DeleteMapping("/me")
+    fun deleteAccount(
+        @AuthenticationPrincipal jwt: Jwt,
+        httpRequest: HttpServletRequest
+    ): ResponseEntity<Map<String, String>> {
+        val userId = runCatching { UUID.fromString(jwt.subject) }.getOrNull()
+            ?: return ResponseEntity.notFound().build()
+        val userType = jwt.claims["user_type"] as? String
+
+        val email = when (userType?.uppercase()) {
+            "ADMIN" -> adminUserService.findById(userId)?.email
+            else -> userService.findById(userId)?.email
+        } ?: return ResponseEntity.notFound().build()
+
+        when (userType?.uppercase()) {
+            "ADMIN" -> adminUserService.deleteAccount(userId)
+            else -> userService.deleteAccount(userId)
+        }
+        tokenRevocationClient.revokeAllTokens(userId.toString())
+
+        auditLogService.record(
+            action = "ACCOUNT_DELETED",
+            outcome = AuditLogEntity.Outcome.SUCCESS,
+            actorType = userType,
+            actorId = userId.toString(),
+            target = email,
+            ipAddress = clientIp(httpRequest)
+        )
+        return ResponseEntity.ok(mapOf("message" to "Account deleted"))
     }
 
     private fun clientIp(request: HttpServletRequest): String? {
