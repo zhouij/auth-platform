@@ -375,3 +375,56 @@ B.13 fine-grained authz, web-client JDBC sessions + browser verification of
 the BFF dashboard, OAuth-flow Testcontainers tests, tracing, TLS termination
 for real deployments, Redis-based rate limiting for multi-replica, and all of
 section D (MFA, SSO, DPoP/reference tokens, privacy, compliance).
+
+---
+
+## 8. Fourth session (2026-08-17): tests, BFF sessions, GDPR, tracing, passwords
+
+### Implemented & verified live
+
+- **OAuth-flow integration tests (the doc's "highest-value investment")** —
+  `OAuth2FlowIntegrationTests` boots the auth-server on a random port with
+  Testcontainers PostgreSQL and a stubbed IAM (JDK HttpServer), then drives the
+  real HTTP flow: client_credentials + JWT claims + JWKS, the full
+  authorization-code flow with PKCE + the consent screen + token exchange
+  (access/id/refresh, profile claims), consent reuse (second authorize skips
+  consent and issues a fresh exchangeable code), and revocation denylisting.
+  These tests caught two REAL bugs (see below).
+- **Bugs found & fixed by the new tests/live verification:**
+  1. `IamPrincipal` was not `Serializable` — JDBC-backed sessions failed to
+     store the security context (500 on login). Now serializable.
+  2. The token customizer overwrote `aud` on **ID tokens** with
+     `resource-server`; OIDC clients reject that (`invalid_id_token`). The
+     audience override now applies to access tokens only.
+  3. Both the auth-server and the BFF defaulted their session cookie to
+     `SESSION` on the same host — the BFF's OAuth state was clobbered mid-flow.
+     Distinct cookie names now (`AUTH_SESSION` / `BFF_SESSION`, env-overridable).
+  4. The BFF's session-fixation protection changed the session id mid-flow,
+     orphaning the pending authorization request; disabled for the BFF (it
+     never authenticates locally).
+- **web-client JDBC sessions (B.10 remainder)** — new `webdb` database, Spring
+  Session JDBC with hourly cleanup; `spring-boot-session` +
+  `spring-boot-session-jdbc` modules added to auth-server and web-client (Boot
+  4 modularized the session auto-config — without them the JDBC store silently
+  falls back to in-memory).
+- **BFF dashboard browser-verified (doc §E)** — `smoke-bff.sh` runs the full
+  browser flow through :9084 (oauth2Login → login → consent → callback →
+  dashboard with the user's email) and is wired into CI. Verified passing.
+- **GDPR basics (D.5 partial)** — `GET /api/v1/me/export` (art. 20) and
+  `DELETE /api/v1/me` (art. 17: anonymize + disable + purge history/reset
+  tokens/login attempts + revoke all JWTs via the auth-server denylist).
+  Verified live end-to-end.
+- **Common-password check (B.12 remainder)** — curated blocklist applied to
+  all password validation paths (`iam.password.common-check-enabled`, default
+  true). Verified live (password123 rejected).
+- **Tracing (A.8 remainder)** — `micrometer-tracing-bridge-otel` +
+  `opentelemetry-exporter-otlp` on all five services; set
+  `OTEL_EXPORTER_OTLP_ENDPOINT` to export. No collector wired in this repo.
+- **Audit-retention tests** — unit tests for the disabled/negative cases plus a
+  Testcontainers test proving old rows are pruned against the real database.
+
+### Still open
+
+Fine-grained authz (B.13), MFA/SSO/DPoP (roadmap), TLS termination in a real
+deployment, Redis-based rate limiting for multi-replica, consent-records
+export in the GDPR payload, and an actual tracing collector/backend.

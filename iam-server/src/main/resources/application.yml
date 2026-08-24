@@ -59,6 +59,7 @@ management:
 
 iam:
   internal-token: ${IAM_INTERNAL_TOKEN:dev-internal-token}
+  auth-server-base-url: ${IAM_AUTH_SERVER_URL:http://localhost:9081}
   signing:
     key-path: ${IAM_SIGNING_KEY_PATH:}
     previous-key-paths: ${IAM_SIGNING_PREVIOUS_KEY_PATHS:}
@@ -68,6 +69,7 @@ iam:
     window-minutes: ${IAM_LOGIN_WINDOW_MINUTES:15}
   password:
     history-size: ${IAM_PASSWORD_HISTORY_SIZE:5}
+    common-check-enabled: ${IAM_PASSWORD_COMMON_CHECK:true}
   audit:
     retention-days: ${IAM_AUDIT_RETENTION_DAYS:90}
     # Daily at 04:00. Cron expressions contain spaces and colons — keep the

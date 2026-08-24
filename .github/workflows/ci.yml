@@ -53,11 +53,13 @@ jobs:
           java -jar auth-server/build/libs/auth-server-1.0.0-SNAPSHOT.jar > auth.log 2>&1 &
           java -jar resource-server/build/libs/resource-server-1.0.0-SNAPSHOT.jar > resource.log 2>&1 &
           java -jar gateway/build/libs/gateway-1.0.0-SNAPSHOT.jar > gateway.log 2>&1 &
+          java -jar web-client/build/libs/web-client-1.0.0-SNAPSHOT.jar > web-client.log 2>&1 &
           for url in \
               http://localhost:9083/actuator/health \
               http://localhost:9081/actuator/health \
               http://localhost:9082/actuator/health \
-              http://localhost:9080/actuator/health; do
+              http://localhost:9080/actuator/health \
+              http://localhost:9084/actuator/health; do
             for i in $(seq 1 60); do
               curl -fsS "$url" > /dev/null 2>&1 && break
               sleep 2
@@ -67,10 +69,13 @@ jobs:
       - name: Run smoke test
         run: ./smoke-test.sh
 
+      - name: Run BFF smoke test
+        run: ./smoke-bff.sh
+
       - name: Show service logs on failure
         if: failure()
         run: |
-          for f in iam.log auth.log resource.log gateway.log; do
+          for f in iam.log auth.log resource.log gateway.log web-client.log; do
             echo "===== $f ====="; tail -100 "$f"
           done
 

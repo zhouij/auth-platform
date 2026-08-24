@@ -7,6 +7,7 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
+import org.springframework.security.oauth2.core.oidc.endpoint.OidcParameterNames
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationConsentService
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationService
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationConsentService
@@ -134,8 +135,13 @@ class AuthorizationServerConfig {
             }
 
             claimsBuilder.claims { claims ->
-                val aud = audience.split(',').map { it.trim() }.filter { it.isNotEmpty() }
-                claims["aud"] = aud
+                // The audience override applies to ACCESS tokens only. ID
+                // tokens must keep aud = client_id per the OIDC spec, or
+                // OIDC clients reject them as invalid_id_token.
+                if (context.tokenType.value != OidcParameterNames.ID_TOKEN) {
+                    val aud = audience.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+                    claims["aud"] = aud
+                }
             }
         }
     }

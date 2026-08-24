@@ -228,6 +228,8 @@ Important settings in [iam-server/src/main/resources/application.yml](iam-server
 | `IAM_LOGIN_MAX_ATTEMPTS` | `5` | Failed attempts before lockout |
 | `IAM_LOGIN_LOCKOUT_MINUTES` | `15` | Lockout duration |
 | `IAM_PASSWORD_HISTORY_SIZE` | `5` | Recent passwords that cannot be reused |
+| `IAM_PASSWORD_COMMON_CHECK` | `true` | Reject a curated list of common passwords |
+| `IAM_AUTH_SERVER_URL` | `http://localhost:9081` | auth-server base URL (token revocation on account deletion) |
 | `IAM_AUDIT_RETENTION_DAYS` | `90` | Audit-log retention (0 disables pruning) |
 | `EMAIL_ENABLED` / `EMAIL_FROM` | `false` / `no-reply@localhost` | Email delivery (logs links when disabled) |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USERNAME` / `SMTP_PASSWORD` | — | SMTP server for real email |
@@ -438,6 +440,22 @@ docker compose up -d postgres
 Run each `bootRun` command in its own terminal. The same script runs in CI
 against the Compose-managed Postgres.
 
+`smoke-bff.sh` additionally exercises the full browser flow through the
+web-client BFF (`:9084`): oauth2Login redirect → login → consent → callback →
+dashboard. It needs `web-client` running and the `webdb` database.
+
+### Self-service data export and erasure
+
+With a user access token:
+
+```bash
+# GDPR art. 20 — export your data
+curl -s -H "Authorization: Bearer $ACCESS_TOKEN" http://localhost:9083/api/v1/me/export
+
+# GDPR art. 17 — delete your account (anonymizes + revokes tokens)
+curl -s -X DELETE -H "Authorization: Bearer $ACCESS_TOKEN" http://localhost:9083/api/v1/me
+```
+
 ## Project Layout
 
 ```text
@@ -478,7 +496,11 @@ Before deploying:
    enable `GATEWAY_HSTS_ENABLED` / `AUTH_HSTS_ENABLED`. Don't publish the
    backend service ports (9081–9084) publicly; expose only the gateway.
 7. **Observability** — scrape `/actuator/prometheus` per service; non-health
-   actuator endpoints require admin authentication.
+   actuator endpoints require admin authentication. All services ship with the
+   OpenTelemetry bridge — set `OTEL_EXPORTER_OTLP_ENDPOINT` to export traces.
+8. **GDPR basics** — self-service `GET /api/v1/me/export` (art. 20) and
+   `DELETE /api/v1/me` (art. 17: anonymizes the account and revokes all
+   outstanding tokens via the auth-server) are available behind a user token.
 8. **CI** — the GitHub Actions workflow (build+tests, e2e smoke, Docker
    builds) runs on every push to `main`; consider branch protection.
 

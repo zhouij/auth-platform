@@ -2,6 +2,11 @@ package com.zhouij.authplatform.webclient
 
 import org.junit.jupiter.api.Test
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.test.context.DynamicPropertyRegistry
+import org.springframework.test.context.DynamicPropertySource
+import org.testcontainers.junit.jupiter.Container
+import org.testcontainers.junit.jupiter.Testcontainers
+import org.testcontainers.postgresql.PostgreSQLContainer
 
 @SpringBootTest(
     properties = [
@@ -12,8 +17,23 @@ import org.springframework.boot.test.context.SpringBootTest
         "spring.security.oauth2.client.provider.auth-platform.user-name-attribute=sub"
     ]
 )
+@Testcontainers
 class WebClientApplicationTests {
     @Test
     fun contextLoads() {
+    }
+
+    companion object {
+        @Container
+        @JvmStatic
+        val postgres = PostgreSQLContainer("postgres:16-alpine")
+
+        @DynamicPropertySource
+        @JvmStatic
+        fun postgresProperties(registry: DynamicPropertyRegistry) {
+            registry.add("spring.datasource.url", postgres::getJdbcUrl)
+            registry.add("spring.datasource.username", postgres::getUsername)
+            registry.add("spring.datasource.password", postgres::getPassword)
+        }
     }
 }

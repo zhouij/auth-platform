@@ -1,6 +1,7 @@
 package com.zhouij.authplatform.iam.service
 
 import com.zhouij.authplatform.iam.domain.UserEntity
+import com.zhouij.authplatform.iam.repository.LoginAttemptRepository
 import com.zhouij.authplatform.iam.repository.UserPasswordResetTokenRepository
 import com.zhouij.authplatform.iam.repository.UserRepository
 import org.springframework.stereotype.Service
@@ -13,7 +14,8 @@ class UserService(
     private val userRepository: UserRepository,
     private val passwordService: PasswordService,
     private val userPasswordResetTokenRepository: UserPasswordResetTokenRepository,
-    private val passwordHistoryService: PasswordHistoryService
+    private val passwordHistoryService: PasswordHistoryService,
+    private val loginAttemptRepository: LoginAttemptRepository
 ) {
 
     @Transactional
@@ -134,6 +136,30 @@ class UserService(
         }
         user.updatedAt = Instant.now()
         userRepository.save(user)
+    }
+
+    /**
+     * Right to erasure: anonymizes the account (keeping referential integrity),
+     * disables it, and clears password history, reset tokens, and login-attempt
+     * state. Outstanding JWTs are revoked separately via the auth-server.
+     */
+    @Transactional
+    fun deleteAccount(userId: UUID) {
+        val user = findById(userId) ?: return
+        val oldEmail = user.email
+        user.email = "deleted-${user.id}@anonymized.invalid"
+        user.username = null
+        user.firstName = null
+        user.lastName = null
+        user.enabled = false
+        user.emailVerified = false
+        user.credentialsChangedAt = Instant.now()
+        user.updatedAt = Instant.now()
+        userRepository.save(user)
+
+        userPasswordResetTokenRepository.deleteByUserId(userId)
+        passwordHistoryService.deleteHistoryForUser(userId)
+        loginAttemptRepository.deleteById(oldEmail.lowercase())
     }
 
     enum class ChangePasswordResult {

@@ -1,6 +1,12 @@
 
 server:
   port: 9081
+  servlet:
+    session:
+      # Distinct cookie name: the BFF and this server share the localhost
+      # domain, and two "SESSION" cookies would clobber each other.
+      cookie:
+        name: ${AUTH_SESSION_COOKIE:AUTH_SESSION}
 
 spring:
   application:

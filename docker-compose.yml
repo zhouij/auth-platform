@@ -30,6 +30,7 @@ services:
       IAM_SIGNING_KEY_PATH: /secrets/iam-signing.key
       AUTH_ISSUER: ${AUTH_ISSUER:-http://localhost:9081}
       AUTH_JWKS_URI: http://auth-server:9081/oauth2/jwks
+      IAM_AUTH_SERVER_URL: http://auth-server:9081
       EMAIL_ENABLED: ${EMAIL_ENABLED:-false}
       EMAIL_RESET_LINK_BASE: ${EMAIL_RESET_LINK_BASE:-http://localhost:3000/reset-password}
       SMTP_HOST: ${SMTP_HOST:-}
@@ -143,6 +144,9 @@ services:
     environment:
       WEB_CLIENT_ID: ${WEB_CLIENT_ID:-web-client}
       WEB_CLIENT_SECRET: ${WEB_CLIENT_SECRET:-secret}
+      WEB_DB_HOST: postgres
+      WEB_DB_USER: web_user
+      WEB_DB_PASS: ${WEB_DB_PASS:-web_pass}
       # authorization-uri is where the BROWSER is sent — host-reachable URL.
       # token/jwks/userinfo URIs are called server-side by the BFF itself.
       AUTH_AUTHORIZATION_URI: ${AUTH_AUTHORIZATION_URI:-http://localhost:9081/oauth2/authorize}
@@ -153,6 +157,8 @@ services:
     ports:
       - "9084:9084"
     depends_on:
+      postgres:
+        condition: service_healthy
       auth-server:
         condition: service_healthy
       gateway:
